@@ -137,7 +137,8 @@ def markdown(vs, rows):
     body = "\n".join(f"| {m['name']} ({m['unit']}, {m['better']} is better) | " + " | ".join(
         "–" if val is None else f"{val:g}" + (f" ({pct:+.0f}%)" if i and pct is not None else "")
         for i, (val, pct) in enumerate(zip(m["values"], m["change_pct"]))) + " |" for m in rows)
-    return f"# Coreglass comparison\n\nBaseline: {vs[0]['variant']}. Measured, one request per variant.\n\n{head}{body}\n"
+    intro = f"Baseline: {vs[0]['variant']}. Measured, one request per variant."
+    return f"# Coreglass comparison\n\n{intro}\n\n{head}{body}\n"
 
 
 def compare(specs, out, title=None, png=False, scale=2.0, anonymize=False, theme_name="synthwave"):
