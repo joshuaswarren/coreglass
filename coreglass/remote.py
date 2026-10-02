@@ -64,6 +64,13 @@ while [ "$(date +%s)" -lt "$end" ]; do {lock}sh -c {cmd} >/dev/null || exit 3; n
 echo ane_batches=$n"""
 LLM = "{py} - {model} {prompt} {gen} <<'PY'\n{script}\nPY"
 LLMSTEP = Path(__file__).with_name("llmstep.py")
+SERVE = "{py} - {cmd} {model} {prompt} {gen} <<'PY'\n{script}\nPY"
+SERVESTEP = Path(__file__).with_name("servestep.py")
+# One request at a time and no cross-run cache, so every engine starts cold (Omarchy's launcher uses the same
+# concurrency flags for mlx_lm.server).
+SERVERS = {"mlx-lm": "{py} -m mlx_lm.server --model {model} --host 127.0.0.1 --port {{port}} "
+                     "--decode-concurrency 1 --prompt-concurrency 1",
+           "omlx": "{bin}/omlx serve --model-dir {model_dir} --host 127.0.0.1 --port {{port}} --no-cache"}
 RESULT = '{"coreglass_result"'
 
 
@@ -127,8 +134,9 @@ def hosts_cmd(names):
 
 
 def probe_steps(host, meta, secs):
-    """Built-in steps: spin every P core, spin every E core, an MLX matmul under the GPU lock, a real LLM
-    request (`llm_model`), then the host's `ane_cmd` in a loop under the GPU lock (and `ane_lock`, when set)."""
+    """Built-in steps: spin every P core, spin every E core, an MLX matmul under the GPU lock, one real LLM
+    request per `llm_runs` entry (in process or through a server; default: in process with `mlx_python`), then
+    the host's `ane_cmd` in a loop under the GPU lock (and `ane_lock`, when set)."""
     by = {c["label"]: c["cpus"] for c in meta["clusters"]}
     p = [c for lab, cs in by.items() if lab != "E" for c in cs]
     steps = [("P spin", SPIN.format(cpus=" ".join(map(str, p)), secs=secs), False)] if p and "E" in by else []
@@ -138,10 +146,20 @@ def probe_steps(host, meta, secs):
         steps.append(("CPU spin", SPIN.format(cpus=" ".join(map(str, p)), secs=secs), False))
     if host.get("mlx_python"):
         steps.append(("GPU matmul", MATMUL.format(py=host["mlx_python"], secs=secs + 5), True))
-        if host.get("llm_model"):
-            steps.append(("LLM", LLM.format(py=host["mlx_python"], model=shlex.quote(host["llm_model"]),
-                                            prompt=int(host.get("llm_prompt_tokens", 512)),
-                                            gen=int(host.get("llm_gen_tokens", 128)), script=LLMSTEP.read_text()), True))
+    if host.get("llm_model"):
+        model = host["llm_model"]
+        sizes = {"prompt": int(host.get("llm_prompt_tokens", 512)), "gen": int(host.get("llm_gen_tokens", 128))}
+        for run in host.get("llm_runs") or [{"label": "LLM"}]:
+            py, engine = run.get("python") or host["mlx_python"], run.get("engine", "in-process")
+            env = "".join(f"{k}={shlex.quote(str(v))} " for k, v in run.get("env", {}).items())
+            if engine == "in-process":
+                cmd = LLM.format(py=env + py, model=shlex.quote(model), script=LLMSTEP.read_text(), **sizes)
+            else:
+                server = SERVERS[engine].format(py=py, bin=shlex.quote(str(Path(py).parent)), model=shlex.quote(model),
+                                                model_dir=shlex.quote(str(Path(model).parent)))
+                cmd = SERVE.format(py=py, cmd=shlex.quote(f"env {env}{server}" if env else server),
+                                   model=shlex.quote(model), script=SERVESTEP.read_text(), **sizes)
+            steps.append((run["label"], cmd, True))
     if host.get("ane_cmd"):
         lock = f"flock -w 60 {shlex.quote(host['ane_lock'])} " if host.get("ane_lock") else ""
         steps.append(("ANE", ANE.format(secs=secs, lock=lock, cmd=shlex.quote(host["ane_cmd"])), True))
@@ -282,7 +300,9 @@ def phases(capture):
                   "system_w": watts, "j_per_token": round(watts / tps, 3) if watts and tps else None,
                   "host_cpu_ms_per_token": round(cpu / tps * 1000, 2) if cpu is not None and tps else None,
                   "weights_gb_s_modeled": round(r["weights_gb"] * tps, 1) if r.get("weights_gb") and tps else None,
-                  "token_gap_ms_p50_p99": _pcts([(b - a) * 1000 for a, b in zip(t[1:], t[2:])])})
+                  # A server that packs several tokens per chunk has chunk gaps, not token gaps.
+                  "token_gap_ms_p50_p99": None if r.get("stream_chunks", len(t)) < 0.9 * r.get("gen_tokens", len(t))
+                  else _pcts([(b - a) * 1000 for a, b in zip(t[1:], t[2:])])})
         results.append(r)
     first = spans[0][1] if spans else samples[-1]["t"]
     return {"host": meta["host"], "engines": meta.get("engines", []), "system_rail": system,
@@ -308,8 +328,10 @@ def phases_cmd(capture, as_json):
     for r in out["phases"]:
         print(f"{r['phase'][:14]:<14} {r['n']:>4} {r['seconds']:>6} "
               + " ".join(f"{'-' if r[k] is None else r[k]:>13}" for k in keys))
-    for r in out["results"]:
-        print(f"\n{r['label']} result ({out['system_rail'] or 'no system rail'} for energy):")
-        for k, v in r.items():
-            if k != "label":
-                print(f"  {k:<24} {v}")
+    res = out["results"]
+    if res:
+        keys = list(dict.fromkeys(k for r in res for k in r if k != "label"))
+        print(f"\nLLM results (energy from {out['system_rail'] or 'no system rail'}):")
+        print(f"{'':<24}" + "".join(f"{r['label'][:18]:>20}" for r in res))
+        for k in keys:
+            print(f"{k:<24}" + "".join(f"{str(r.get(k, '-')):>20}" for r in res))

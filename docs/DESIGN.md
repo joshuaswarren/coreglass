@@ -148,15 +148,16 @@ One `coreglass run` with `llm_model` set answers these questions. `coreglass pha
 | Question | Data | Source | Status |
 |---|---|---|---|
 | How fast is a real request? | prefill tok/s, TTFT, decode tok/s, token gap p50/p99, model load s | LLM step (`llmstep.py`, mlx_lm) | measured |
+| Which serving engine is faster here? | the same numbers per engine, side by side; `coreglass compare` frame | `llm_runs` steps (`llmstep.py` in process, `servestep.py` for `mlx_lm.server` and oMLX) | measured, one request at a time |
 | What does a token cost the host? | workload CPU ms per token, top threads, run-queue wait, context switches/s | `proc`, `sys` | measured |
 | What does a token cost in energy? | J per token = mean system rail over the decode window / decode tok/s | hwmon rails + token times | measured |
 | How close is decode to the memory ceiling? | weight bytes read per second = weights GB × decode tok/s | model size × decode rate | modeled (ignores KV-cache reads) |
 | Is the CPU, the disk, or memory in the way? | per-core busy, cluster clocks, disk MB/s, faults, swap, PSI | `cpu`, `khz`, `sys`, `psi` | measured |
 | Did the driver complain? | kernel warnings and errors during each step | `journalctl -k -p warning` per step, in the manifest | measured |
-| How busy is the GPU? | busy fraction, jobs/s, power state | `agx_stats` | waiting on drm/asahi; today the firmware IRQ rate stands in |
+| How busy is the GPU? | busy fraction, jobs/s, power state | `agx_stats` | waiting on the linux-aurora GPU driver; today the firmware IRQ rate stands in |
 | How busy is the ANE? | busy fraction, jobs/s | `ane_stats` | measured where the driver exports it; the probe step needs `ane_cmd` |
 | GPU memory bandwidth, cache, and per-kernel time | DRAM bytes, kernel timestamps | no Linux counter yet | not captured: needs an uncore PMU driver or Vulkan timestamp queries in MLX |
-| Per-process GPU time | `drm-engine-*` in fdinfo | drm/asahi has no fdinfo usage keys | not captured |
+| Per-process GPU time | `drm-engine-*` in fdinfo | the linux-aurora GPU driver has no fdinfo usage keys | not captured |
 | Same request on macOS | the same numbers under macOS | the `reference` bundle | replay, from the lab |
 
 First LLM receipt, M1 with Qwen3.5 4-bit, 512-token prompt and 128 generated tokens: prefill 408 tok/s,
@@ -209,6 +210,13 @@ busy_patterns = ["my-benchmark"]           # optional, processes that mean "busy
   step when `ane_cmd` is set. The ANE step loops `ane_cmd` for the step length under `gpu_lock` and, when
   set, `flock -w 60 <ane_lock>`. After each step the run stores the target's kernel warnings and errors
   in the manifest. A step that prints a `{"coreglass_result": …}` line gets its result stored too.
+  Each `llm_runs` entry is one step, labeled by `label`, with its own `python` and `env`. In-process runs use
+  `llmstep.py`. Server runs use `servestep.py`: it starts the server on a free loopback port, points the sampler at
+  the server pid, waits for `/v1/models`, sends an 8-token warmup, then streams one completion with the same prompt
+  and length. TTFT and token times come from the stream; token counts come from the server's `usage` when it reports
+  them. The server's process group is always stopped afterward.
+- `coreglass compare` turns 2 to 4 of those results (from one run or several) into one shareable frame, with
+  `compare.json` and `compare.md` for LLM readers.
 - Each run writes `captures/<host>-<UTC>.jsonl` and `<same>.run.json` (`coreglass/run/v1`): host entry,
   preflight, any blockers overridden, per-step label, command, exit code, wall and capture times,
   output tails, and the Coreglass commit.
@@ -227,7 +235,7 @@ proxy to measured busy time with no Coreglass change.
 
 Neither driver exports busy time. Measured on an M1 Max (2026-10-02):
 
-- drm/asahi has no fdinfo `drm-engine-*` or `drm-cycles` keys. Its debugfs has only `clients`,
+- The linux-aurora GPU driver (module `asahi`) has no fdinfo `drm-engine-*` or `drm-cycles` keys. Its debugfs has only `clients`,
   `gem_names`, and `name`. Runtime PM reports `unsupported` for the GPU device.
 - The ANE device (`/sys/class/accel/accel0`) stays runtime-PM `active` all the time, and its genpd
   domains (`ane_sys`, `ane_set0`..`ane_set5`) stay on, so neither shows work.
@@ -238,8 +246,8 @@ Neither driver exports busy time. Measured on an M1 Max (2026-10-02):
 
 1. **Firmware stats → device busy time (do first).** The AGX firmware already sends `Utilization`
    (`util1`..`util4`), `PowerState` (`pstate`, `active`, `poweroff`), `PowerOn`/`PowerOff`
-   (`on_time`/`off_time`), `FwBusy` (`busy`), `AvgPower`, and `Temperature` messages. drm/asahi decodes
-   them and only debug-logs them: `drivers/gpu/drm/asahi/channel.rs` `StatsChannel::poll`, message
+   (`on_time`/`off_time`), `FwBusy` (`busy`), `AvgPower`, and `Temperature` messages. The linux-aurora GPU
+   driver decodes them and only debug-logs them: `drivers/gpu/drm/asahi/channel.rs` `StatsChannel::poll`, message
    layout in `fw/channels.rs` (`StatsMsg`), log class `StatsCh` = bit 18 of the `debug_flags` module
    parameter. Work: keep the latest values and cumulative counters in the device, export them per the
    producer contract, and validate field meaning against a controlled MLX load. Kernel work lands in
@@ -270,7 +278,7 @@ Each driver exports one read-only sysfs file (mode 0444, no root needed) on its 
 
 | Engine | Path | Owner |
 |---|---|---|
-| GPU | `/sys/class/drm/card*/device/agx_stats` (the `asahi` card) | drm/asahi in linux-aurora |
+| GPU | `/sys/class/drm/card*/device/agx_stats` (the card bound to module `asahi`) | linux-aurora GPU driver |
 | ANE | `/sys/class/accel/accel*/device/ane_stats` | omarchy-ane |
 
 Format: one `key value` pair per line, ASCII, integers only. Unknown keys are allowed and passed

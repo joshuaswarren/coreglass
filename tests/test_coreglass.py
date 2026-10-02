@@ -4,7 +4,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from coreglass import build, ingest, model, remote, sampler, theme, views
+from coreglass import build, compare, ingest, model, remote, sampler, theme, views
 
 FIXTURE = build.REFERENCE
 
@@ -172,6 +172,16 @@ class Remote(unittest.TestCase):
         self.assertEqual((r["j_per_token"], r["host_cpu_ms_per_token"]), (2.0, 50.0))
         self.assertEqual((r["weights_gb_s_modeled"], r["token_gap_ms_p50_p99"], r["kernel_warnings"]),
                          (15.0, [1000.0, 1000.0], 1))
+
+    def test_compare_marks_winner_change_and_calls_small_gaps_a_tie(self):
+        vs = [{"variant": "A", "decode_tok_s": 40.0, "ttft_ms": 1000.0},
+              {"variant": "B", "decode_tok_s": 50.0, "ttft_ms": 1100.0}]
+        rows = {m["metric"]: m for m in compare.deltas(vs)}
+        self.assertEqual((rows["decode_tok_s"]["best"], rows["decode_tok_s"]["change_pct"]), (1, [0.0, 25.0]))
+        self.assertEqual(rows["ttft_ms"]["best"], 0)
+        self.assertEqual(compare.headline(vs, list(rows.values()))[1], "+25%")
+        vs[1]["decode_tok_s"] = 40.8
+        self.assertEqual(compare.headline(vs, compare.deltas(vs))[1], "≈")
 
 
 class Render(unittest.TestCase):

@@ -19,7 +19,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import apppage, build, livepage, remote, theme
+from . import apppage, build, compare, livepage, remote, theme
 from .live import LiveHandler, Session
 
 DATA = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "coreglass"
@@ -144,7 +144,10 @@ class App:
             man = p.with_suffix(".run.json")
             info = json.loads(man.read_text()) if man.exists() else {}
             with p.open() as f:
-                meta = json.loads(f.readline()).get("meta", {})
+                first = f.readline()
+            if not first.startswith('{"meta"'):  # a run stopped before the sampler spoke; nothing to show
+                continue
+            meta = json.loads(first)["meta"]
             built = DATA / "out" / p.stem / "index.html"
             out.append({"name": p.name, "host": meta.get("host", "?"), "model": meta.get("model", ""),
                         "seconds": round(info.get("seconds", 0), 1), "steps": [s["label"] for s in info.get("steps", [])],
@@ -159,6 +162,24 @@ class App:
         path = DATA / "captures" / Path(capture).name
         inputs = (["reference"] if reference else []) + [str(path)]
         return build.build(inputs, DATA / "out" / path.stem, anonymize=anonymize, theme_name=self.theme_name)
+
+    def compare(self, names, anonymize=False):
+        """One capture: its engines side by side. Several: the same step from each (prefer `LLM`)."""
+        paths = [DATA / "captures" / Path(n).name for n in names]
+        specs = [str(p) for p in paths]
+        if len(paths) > 1:
+            steps = [{r["label"] for r in remote.phases(p)["results"]} for p in paths]
+            common = set.intersection(*steps)
+            if not common:
+                raise SystemExit("the marked captures share no LLM step")
+            step = "LLM" if "LLM" in common else sorted(common)[0]
+            stamps = [p.stem.rsplit("-", 1)[-1] for p in paths]
+            specs = [f"{p}#{step}={s[9:11]}:{s[11:13]}Z run" for p, s in zip(paths, stamps)]
+        out = DATA / "out" / ("compare-" + "-".join(p.stem.rsplit("-", 1)[-1] for p in paths))
+        r = compare.compare(specs, out, png=build.browser() is not None, anonymize=anonymize,
+                            theme_name=self.theme_name)
+        rel = out.relative_to(DATA)
+        return {**r, "svg": f"/{rel}/compare.svg", "png": f"/{rel}/compare.png" if build.browser() else None}
 
 
 def handler(app):
@@ -210,6 +231,7 @@ def handler(app):
                 "/api/theme": lambda: (app.set_theme(q.get("name", "synthwave")), self.json(app.state())),
                 "/api/build": lambda: self.json(app.build(q["name"], q.get("reference", "1") == "1",
                                                           q.get("anonymize") == "1")),
+                "/api/compare": lambda: self.json(app.compare(q["names"].split(","), q.get("anonymize") == "1")),
             }
             if url.path not in actions:
                 return self.send_error(404)
@@ -279,7 +301,7 @@ Exec={exec} app
 Icon={icon}
 Terminal=false
 Categories=Development;System;Monitor;
-Keywords=mlx;ane;gpu;apple;asahi;omarchy;inference;benchmark;
+Keywords=mlx;omlx;ane;gpu;apple;aurora;omarchy;inference;benchmark;
 StartupWMClass=coreglass
 """
 

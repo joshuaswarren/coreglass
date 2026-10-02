@@ -58,7 +58,8 @@ th{color:var(--dim);font-weight:600}td.hot{color:var(--sun-top);text-shadow:0 0 
 .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px}
 .gallery a{display:block;border-radius:12px;overflow:hidden;box-shadow:0 0 0 1px var(--edge);transition:transform .15s,box-shadow .15s}
 .gallery a:hover{transform:translateY(-2px);box-shadow:0 0 0 1px var(--glow1),0 0 30px color-mix(in srgb,var(--glow1) 30%,transparent)}
-.gallery img{width:100%;display:block}
+.gallery img{width:100%;display:block}.gallery .wide,.gallery>.hx{grid-column:1/-1}
+.tag.hot{color:var(--sun-top);border-color:var(--sun-top)}
 .welcome{height:100%;display:grid;place-items:center;text-align:center}
 .sun{width:240px;height:240px;margin:0 auto 26px;border-radius:50%;
   background:linear-gradient(var(--sun-top),var(--sun-mid) 55%,var(--sun-low));
@@ -97,7 +98,8 @@ BODY = """
 <dt><kbd>r</kbd></dt><dd>run the probe: P cores, E cores, GPU matmul, LLM, ANE</dd><dt><kbd>esc</kbd></dt><dd>stop</dd>
 <dt><kbd>m</kbd></dt><dd>drop a mark on the timeline</dd><dt><kbd>f</kbd></dt><dd>full-screen the live screen</dd>
 <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>pick a capture</dd><dt><kbd>enter</kbd></dt><dd>replay it</dd>
-<dt><kbd>b</kbd></dt><dd>build shareable frames</dd><dt><kbd>t</kbd></dt><dd>synthwave ⇄ your Omarchy theme</dd>
+<dt><kbd>b</kbd></dt><dd>build shareable frames</dd><dt><kbd>space</kbd></dt><dd>mark a capture for comparison</dd>
+<dt><kbd>c</kbd></dt><dd>share a comparison: marked captures, or this run's engines</dd><dt><kbd>t</kbd></dt><dd>synthwave ⇄ your Omarchy theme</dd>
 <dt><kbd>h</kbd></dt><dd>re-check targets</dd><dt><kbd>?</kbd></dt><dd>this card</dd></dl></div></div>
 <div id="toast"></div>
 """
@@ -124,7 +126,7 @@ function renderHosts(){$('#hosts').innerHTML=hosts.map((h,i)=>{const p=h.preflig
 async function loadCaps(){caps=await api('/api/captures');renderCaps()}
 function renderCaps(){$('#caps').innerHTML=caps.length?caps.map((c,i)=>`<div class="cap ${i===ci?'sel':''}" onclick="pickCap(${i})">
   <div class="cn">${esc(c.name.replace(/\.jsonl$/,''))}</div><div class="cm">${esc(c.when)} · ${esc(c.host)}${c.seconds?` · ${c.seconds}s`:''}</div>
-  <div>${c.kind==='run'?c.steps.map(s=>`<span class="tag">${esc(s)}</span>`).join(''):'<span class="tag">LIVE</span>'}${c.built?'<span class="tag">FRAMES</span>':''}</div></div>`).join('')
+  <div>${c.kind==='run'?c.steps.map(s=>`<span class="tag">${esc(s)}</span>`).join(''):'<span class="tag">LIVE</span>'}${c.built?'<span class="tag">FRAMES</span>':''}${picked.has(c.name)?'<span class="tag hot">MARKED</span>':''}</div></div>`).join('')
   :'<div class="hx">Captures land here. Press <kbd>r</kbd> to make one.</div>'}
 function pickCap(i){ci=Math.max(0,Math.min(caps.length-1,i));renderCaps();if(st.mode==='idle')showCap()}
 function live(){const h=hosts[hi];if(h)post('/api/live?host='+encodeURIComponent(h.name)).then(poll)}
@@ -137,17 +139,25 @@ async function buildFrames(){const c=caps[ci];if(!c)return;const ref=$('#ref')?.
   $('#gallery').innerHTML='<div class="hx">rendering frames…</div>';
   const r=await post(`/api/build?name=${encodeURIComponent(c.name)}&reference=${ref}&anonymize=${anon}`);if(r.error)return;
   built[c.name]=r;c.built=true;renderCaps();showCap()}
+const picked=new Set();
+function pick(){const c=caps[ci];if(!c)return;picked.has(c.name)?picked.delete(c.name):picked.add(c.name);renderCaps()}
+async function compareNow(){const c=caps[ci],names=picked.size>1?[...picked]:c?[c.name]:[];if(!names.length)return;
+  const anon=$('#anon')?.checked?1:0;$('#gallery').innerHTML='<div class="hx">rendering the comparison…</div>';
+  const r=await post(`/api/compare?names=${encodeURIComponent(names.join(','))}&anonymize=${anon}`);if(r.error)return showCap();
+  $('#gallery').innerHTML=`<div class="hx">${esc(r.variants.join(' vs '))}${r.png?` · <a href="${r.png}" download>download PNG (3200×1800)</a>`:''}</div>
+  <a class="wide" href="${r.png||r.svg}" target="_blank"><img src="${r.svg}?${Date.now()}"></a>`}
 async function showCap(){const c=caps[ci],s=$('#stage');screenKey='';if(!c)return welcome();
   const ph=await api('/api/phases?name='+encodeURIComponent(c.name)).catch(()=>null);
   const keys=ph?Object.keys(ph.phases[0]).filter(k=>!['phase','n'].includes(k)&&ph.phases.some(p=>p[k]!==null)):[];
   const stem=c.name.replace(/\.jsonl$/,''),r=built[c.name]||(c.built?{frames:['hero','time','bandwidth','util','flow','gaps','capture']}:null);
   s.innerHTML=`<h2>${esc(stem)}</h2><div class="sub">${esc(c.model||c.host)} · ${c.seconds||'?'} s · ${c.kind}</div>
   <div class="actions"><button class="primary" onclick="replay()">Replay<kbd>enter</kbd></button><button onclick="buildFrames()">Build frames<kbd>b</kbd></button>
+  <button onclick="compareNow()">Share comparison<kbd>c</kbd></button>
   <label><input type="checkbox" id="ref" checked>add reference measurements</label><label><input type="checkbox" id="anon">anonymize for posting</label>
   ${r?`<button onclick="window.open('/out/${encodeURIComponent(stem)}/index.html')">Open report</button>`:''}</div>
   ${ph?`<div class="tw"><table><tr><th>phase</th><th>n</th>${keys.map(k=>`<th>${esc(k)}</th>`).join('')}</tr>${ph.phases.map(p=>`<tr><td>${esc(p.phase)}</td><td>${p.n}</td>${keys.map(k=>{const v=p[k];
     const hot=(k.endsWith('busy')&&v>=0.9)||(k==='gpu_fw_irq_s'&&v>=3*(ph.phases[0][k]||1));return `<td class="${hot?'hot':''}">${v===null?'–':v}</td>`}).join('')}</tr>`).join('')}</table></div>`:''}
-  ${ph?ph.results.map(resultCards).join(''):''}
+  ${ph?(ph.results.length>1?compareTable(ph.results):ph.results.map(resultCards).join('')):''}
   <div class="gallery" id="gallery">${r?r.frames.map(f=>`<a href="/out/${encodeURIComponent(stem)}/index.html#${f}" target="_blank"><img loading="lazy" src="/out/${encodeURIComponent(stem)}/frames/${f}.svg?${Date.now()}"></a>`).join(''):'<div class="hx">Press <kbd>b</kbd> to render shareable 1600×900 frames.</div>'}</div>`}
 const RESULT_CARDS=[['decode_tok_s','decode tok/s'],['ttft_ms','time to first token, ms'],['prefill_tok_s','prefill tok/s'],
   ['j_per_token','J per token'],['host_cpu_ms_per_token','host CPU ms per token'],['weights_gb_s_modeled','weight reads GB/s (modeled)'],
@@ -155,6 +165,11 @@ const RESULT_CARDS=[['decode_tok_s','decode tok/s'],['ttft_ms','time to first to
 function resultCards(r){return `<div class="hx">${esc(r.label)} · ${esc(r.model)} · ${r.prompt_tokens} prompt + ${r.gen_tokens} generated tokens</div>
   <div class="results">${RESULT_CARDS.filter(([k])=>r[k]!==null&&r[k]!==undefined).map(([k,l])=>`<div class="res ${k==='kernel_warnings'&&r[k]?'warn':''}">
   <b>${esc(Array.isArray(r[k])?r[k].join(' / '):r[k])}</b><span>${esc(l)}</span></div>`).join('')}</div>`}
+function compareTable(rs){const fmt=v=>v===null||v===undefined?'–':esc(Array.isArray(v)?v.join(' / '):v);
+  const best={decode_tok_s:'max',prefill_tok_s:'max',ttft_ms:'min',j_per_token:'min',host_cpu_ms_per_token:'min',load_s:'min'};
+  return `<div class="hx">${esc(rs[0].model)} · same prompt through each engine</div><div class="tw"><table><tr><th>metric</th>${rs.map(r=>`<th>${esc(r.label)}</th>`).join('')}</tr>
+  ${RESULT_CARDS.map(([k,l])=>{const vs=rs.map(r=>r[k]),nums=vs.filter(v=>typeof v==='number'),pick=best[k]&&nums.length>1?Math[best[k]](...nums):null;
+    return `<tr><td>${esc(l)}</td>${vs.map(v=>`<td class="${typeof v==='number'&&v===pick?'hot':''}">${fmt(v)}</td>`).join('')}</tr>`}).join('')}</table></div>`}
 function welcome(){screenKey='';$('#stage').innerHTML=`<div class="welcome"><div><div class="sun"></div><div class="mark">Coreglass</div>
   <p>See where local inference loses speed on Apple Silicon under Linux.<br>Pick a target with <kbd>1</kbd>–<kbd>9</kbd>, then <kbd>l</kbd> to watch it live or <kbd>r</kbd> to run the probe.</p></div></div>`}
 function stage(){const s=$('#stage'),key=st.mode+'|'+st.target;
@@ -179,6 +194,7 @@ document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT'||e.ctrlKey
   if(/^[1-9]$/.test(k)&&hosts[+k-1]){hi=+k-1;renderHosts()}
   else if(k==='l')live();else if(k==='r')run();else if(k==='m')mark();else if(k==='t')toggleTheme();else if(k==='h')loadHosts();
   else if(k==='f')$('.screen')?.requestFullscreen();else if(k==='b')buildFrames();else if(k==='Enter')replay();
+  else if(k===' '){e.preventDefault();pick()}else if(k==='c')compareNow();
   else if(k==='ArrowDown'){e.preventDefault();pickCap(ci+1)}else if(k==='ArrowUp'){e.preventDefault();pickCap(ci-1)}});
 if(sessionStorage.cgSplash||matchMedia('(prefers-reduced-motion: reduce)').matches)$('#splash').classList.add('gone');
 else{sessionStorage.cgSplash=1;setTimeout(()=>$('#splash').classList.add('gone'),1700)}

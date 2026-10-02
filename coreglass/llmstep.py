@@ -20,8 +20,8 @@ t = time.time()
 model, tok = load(model_dir)
 load_s = time.time() - t
 text = "Apple Silicon runs local language models on Linux through Vulkan and a reverse engineered GPU driver. "
-ids = tok.encode(text * (n_prompt // 10 + 1))[:n_prompt]
-for _ in stream_generate(model, tok, ids[:32], max_tokens=8):
+ids = tok.encode(text * max(1, round(n_prompt / 18)))  # same text servestep.py sends, so every engine sees one prompt
+for _ in stream_generate(model, tok, tok.encode("Warm up the GPU."), max_tokens=8):
     pass
 mx.reset_peak_memory()
 stamps, last, t = [], None, time.time()

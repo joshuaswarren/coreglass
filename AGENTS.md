@@ -23,11 +23,13 @@ Python 3.11+, standard library only. Chrome or Chromium is needed only for `--pn
 | Parse lab receipts | `coreglass ingest-lab --root <artifacts dir> -o bundles/local/lab.json` |
 | Render frames + summary | `coreglass build reference captures/<file>.jsonl -o out/x --png` (`reference` = bundled measurements) |
 | Same, safe to post publicly | add `--anonymize` |
+| Shareable comparison frame (engines, versions, before/after) | `coreglass compare 'captures/<a>.jsonl#STEP=LABEL' ... --png --anonymize` |
 | Tests | `python3 -m unittest discover -s tests` |
 
 Targets come from `~/.config/coreglass/hosts.toml` (format: `hosts.example.toml`). Each entry has
-`ssh`, `gpu_lock`, and optional `mlx_python`, `llm_model`, `busy_patterns`, `ane_cmd`, and `ane_lock`. A bare SSH
-alias also works. `docs/DESIGN.md` "Data coverage" lists what one run measures and what is still missing.
+`ssh`, `gpu_lock`, and optional `mlx_python`, `llm_model`, `llm_runs` (labeled engine runs), `busy_patterns`, `ane_cmd`,
+and `ane_lock`. A bare SSH alias also works. `docs/DESIGN.md` "Data coverage" lists what one run measures and what is
+still missing.
 
 ## Rules for runs on shared machines
 

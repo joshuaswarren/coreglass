@@ -35,6 +35,7 @@ It opens in its own window and drives everything from the keyboard.
 | `m` / `f` / `esc` | mark the timeline / full screen / stop |
 | `↑` `↓` then `enter` | pick a capture and replay it |
 | `b` | build shareable frames from the capture |
+| `space` / `c` | mark a capture / share a comparison frame (marked captures, or this run's engines) |
 | `t` | switch between the synthwave look and your current Omarchy theme |
 
 Captures and frames live in `~/.local/share/coreglass/`.
@@ -70,8 +71,24 @@ The probe drives the ANE when the target's entry sets `ane_cmd` (see [hosts.exam
 
 Set `llm_model` to an MLX model directory, and the probe also runs a real LLM request. It records prefill and
 decode speed, time to first token, token gaps, energy per token, and the workload's CPU time per token by thread.
-It also records disk reads, faults, and kernel warnings. [docs/DESIGN.md](docs/DESIGN.md) has the full data
-coverage map, what is still missing and why, and the producer contract for the GPU and ANE drivers.
+It also records disk reads, faults, and kernel warnings. List several `llm_runs` (see [hosts.example.toml](hosts.example.toml)),
+and the probe sends the same request through each engine: mlx-lm in process, `mlx_lm.server`, or oMLX, with any Python
+and patch set you point it at. `coreglass phases` and the app then show the engines side by side.
+[docs/DESIGN.md](docs/DESIGN.md) has the full data coverage map, what is still missing and why, and the producer
+contract for the GPU and ANE drivers.
+
+## Comparison frames
+
+```sh
+coreglass compare captures/<run>.jsonl --png --anonymize                 # every engine in one run
+coreglass compare 'captures/<a>.jsonl#LLM=before' 'captures/<b>.jsonl#LLM=after' --png   # one step across runs
+```
+
+Each call writes one 1600×900 frame (`compare.png` at 3200×1800) plus `compare.json` and `compare.md`. The frame
+shows decode, time to first token, prefill, energy per token, and host CPU per token for two to four variants. It
+marks the winner and each variant's change against the first one. One request per variant cannot show run-to-run
+noise, so a decode gap under 3% reads "no clear difference". In the app, press `c` on a run with several engines,
+or mark captures with `space` and press `c`.
 
 ## Output
 

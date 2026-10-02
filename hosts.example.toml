@@ -3,8 +3,14 @@
 # ssh:           SSH alias the viewer uses (key auth; no password prompts).
 # gpu_lock:      flock file that serializes GPU work on the target; --gpu-step and the MLX probe run under it.
 # mlx_python:    optional interpreter with MLX, enables the built-in GPU probe step.
-# llm_model:     optional MLX model directory; with mlx_python it adds a real LLM request to the probe
+# llm_model:     optional MLX model directory; it adds a real LLM request to the probe
 #                (llm_prompt_tokens, default 512; llm_gen_tokens, default 128).
+# llm_runs:      optional list of labeled LLM runs, one probe step each, all on the same model and prompt:
+#                  label  = name on screens and comparison frames
+#                  engine = "in-process" (default), "mlx-lm" (mlx_lm.server) or "omlx" (omlx serve)
+#                  python = interpreter with that engine (default mlx_python)
+#                  env    = extra environment, e.g. PYTHONPATH to a patched mlx-lm
+#                Without llm_runs, llm_model gives one in-process run labeled "LLM".
 # busy_patterns: optional substrings of process command lines that mean "a benchmark is running; do not start".
 # ane_cmd:       optional shell command that runs one batch of ANE work; the probe loops it for the ANE step,
 #                under gpu_lock and, when set, ane_lock.
@@ -18,3 +24,11 @@ llm_model = "/opt/models/qwen-4bit"
 busy_patterns = ["my-benchmark"]
 ane_cmd = "ane-run --anec /opt/ane/add.anec --in 0=/tmp/a.fp16 --in 1=/tmp/b.fp16 --out 0=/tmp/y.fp16 --repeat 200"
 ane_lock = "/tmp/ane.lock"
+
+[[m2max.llm_runs]]
+label = "mlx-lm"
+
+[[m2max.llm_runs]]
+label = "oMLX"
+engine = "omlx"
+python = "/opt/omlx-venv/bin/python"

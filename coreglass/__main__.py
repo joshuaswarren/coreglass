@@ -1,4 +1,4 @@
-"""coreglass app | build | ingest-lab | live | hosts | run | phases   (python -m coreglass --help)"""
+"""coreglass app | build | compare | ingest-lab | live | hosts | run | phases   (python -m coreglass --help)"""
 
 import argparse
 import json
@@ -6,7 +6,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import app, build as builder, ingest, live, remote
+from . import app, build as builder, compare, ingest, live, remote
 
 
 def build(args):
@@ -52,6 +52,17 @@ def main(argv=None):
     b.add_argument("--anonymize", action="store_true", help="drop host names, kernel strings, and capture file names "
                                                             "(for frames posted in public)")
     b.set_defaults(fn=build)
+
+    c = sub.add_parser("compare", help="one shareable frame comparing 2-4 LLM results: engines in one run, or the "
+                                       "same step across runs (versions, before/after a code change)")
+    c.add_argument("specs", nargs="+", metavar="CAPTURE[#STEP][=LABEL]",
+                   help="a capture adds every LLM result it has; #STEP picks one (e.g. '#serve omlx'); =LABEL names it")
+    c.add_argument("-o", "--out", default="out/compare")
+    c.add_argument("--title", help="frame title (default: 'Inference engines on Linux' or 'Before and after')")
+    c.add_argument("--theme", choices=("synthwave", "omarchy"), default="synthwave")
+    c.add_argument("--png", action="store_true", help="also write compare.png (3200x1800) with headless Chrome")
+    c.add_argument("--anonymize", action="store_true", help="show chip names instead of host names and kernels")
+    c.set_defaults(fn=lambda a: print(compare.compare(a.specs, a.out, a.title, a.png, 2.0, a.anonymize, a.theme)))
 
     i = sub.add_parser("ingest-lab", help="parse lab-notebook artifacts into a measured bundle")
     i.add_argument("-o", "--out", default="bundles/local/lab.json", help="'-' for stdout")
