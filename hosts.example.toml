@@ -1,0 +1,12 @@
+# Coreglass targets. Copy to ~/.config/coreglass/hosts.toml and edit.
+# Section name: the name you pass to `coreglass hosts|live|run`.
+# ssh:           SSH alias the viewer uses (key auth; no password prompts).
+# gpu_lock:      flock file that serializes GPU work on the target; --gpu-step and the MLX probe run under it.
+# mlx_python:    optional interpreter with MLX, enables the built-in GPU probe step.
+# busy_patterns: optional substrings of process command lines that mean "a benchmark is running; do not start".
+
+[m2max]
+ssh = "m2max-linux"
+gpu_lock = "/tmp/gpu.lock"
+mlx_python = "/opt/mlx-venv/bin/python"
+busy_patterns = ["my-benchmark"]

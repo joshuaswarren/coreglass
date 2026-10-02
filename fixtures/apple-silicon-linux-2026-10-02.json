@@ -1,0 +1,70 @@
+{
+  "schema": "coreglass/v1",
+  "title": "Apple Silicon on Linux · measurements 2026-10-02",
+  "host": {
+    "chip": "M1 Max", "soc": "T6001", "os": "Omarchy M+ · linux-aurora",
+    "gpu": "Apple M1 Max (G13C C0) · Honeykrisp Vulkan",
+    "gpu_cores": null, "ane_cores": 16, "cpu_p": 8, "cpu_e": 2, "dram_gbs_spec": 400
+  },
+  "metrics": [
+    {"id": "gpu.decode_bw", "component": "gpu", "host": "M1 Max", "label": "GPU decode effective bandwidth",
+     "value": 150, "ceiling": 309, "unit": "GB/s", "ref": {"label": "macOS", "value": 235},
+     "prov": "replay", "src": "measured 2026-10-02"},
+    {"id": "gpu.prefill_flops", "component": "gpu", "host": "M1 Max", "label": "27B 4-bit prefill, 42 tok/s",
+     "value": 25, "ceiling": 100, "unit": "% peak TFLOPs",
+     "prov": "replay", "src": "measured 2026-10-02"}
+  ],
+  "kernels": [
+    {"op": "q", "null_gbs": 139, "contig_gbs": 222, "bound": "row geometry", "prov": "replay", "src": "measured 2026-10-02"},
+    {"op": "down", "null_gbs": 139, "contig_gbs": 232, "bound": "row geometry", "prov": "replay", "src": "measured 2026-10-02"},
+    {"op": "qkvz · gate_up · out", "kernel_gbs": [106, 147], "bound": "ALU / dequant / schedule", "prov": "replay", "src": "measured 2026-10-02"}
+  ],
+  "request": {
+    "label": "Qwen3.5 27B 4-bit · first token", "caption": "to first token",
+    "phases": [
+      {"name": "prefill 128 tok", "lane": "gpu", "ms": 3048, "prov": "modeled",
+       "note": "scenario prompt of 128 tokens at the measured 42 tok/s"},
+      {"name": "first decode", "lane": "sync", "ms": 1650, "prov": "replay",
+       "note": "~1.65 s even on short prompts"}
+    ]
+  },
+  "token": {
+    "label": "M1 Max host profile", "total_ms": 9.141, "n": 152,
+    "parts": [
+      {"name": "build", "lane": "cpu", "ms": 0.752},
+      {"name": "submit", "lane": "queue", "ms": 3.646},
+      {"name": "GPU wait", "lane": "gpu", "ms": 4.719}
+    ],
+    "prov": "replay", "src": "host-split.json, measured 2026-10-02"
+  },
+  "paired": [
+    {"id": "ane.encoder.m1max", "component": "ane", "host": "M1 Max", "label": "ANE whole encoder",
+     "linux_ms": 438, "macos_ms": 138, "note": "T6001 parked-clock suspect", "prov": "replay", "src": "measured 2026-10-02"},
+    {"id": "ane.encoder.m2max", "component": "ane", "host": "M2 Max", "label": "ANE encoder",
+     "linux_ms": 254, "macos_ms": 89, "prov": "replay", "src": "measured 2026-10-02"}
+  ],
+  "ablations": [
+    {"id": "P-idle", "component": "cpu", "host": "M1", "knob": "P-cluster deep-idle disable",
+     "metric": "ANE latency", "delta_pct": 6.1, "takeaway": "Do not pin the P-cluster awake around ANE work (ane_boost)",
+     "prov": "replay", "src": "measured 2026-10-02"},
+    {"id": "E-idle", "component": "cpu", "host": "M1", "knob": "E-cluster deep-idle disable",
+     "metric": "ANE latency", "delta_pct": 0, "prov": "replay", "src": "measured 2026-10-02"}
+  ],
+  "queues": [
+    {"id": "gpu.submit", "component": "gpu", "label": "Vulkan submit length (desktop stutter)",
+     "observed_ms": 78, "budget_ms": 6, "prov": "replay", "src": "omarchy-mlx #19"}
+  ],
+  "limits": [
+    {"label": "Quiet-box load1 (max)", "value": 0.28, "limit": 0.5, "unit": "", "prov": "replay",
+     "src": "GEMV run env.txt"},
+    {"label": "macOS ANE dump size", "value": 213, "limit": 200, "unit": "k chars", "status": "fixed in collector v0.7.14",
+     "prov": "replay", "src": "measured 2026-10-02"}
+  ],
+  "not_captured": [
+    "GPU and ANE per-core utilization counters",
+    "Thermal and power during GPU decode runs",
+    "DRAM / fabric counters (MCC, DCS, DART)",
+    "Queue depth over time"
+  ],
+  "sources": ["measurements 2026-10-02"]
+}
