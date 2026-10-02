@@ -52,7 +52,8 @@ def deltas(vs):
         base = vals[0]
         rows.append({"metric": key, "name": name, "unit": unit, "better": "higher" if best is max else "lower",
                      "values": vals, "best": vals.index(best(nums)),
-                     "change_pct": [None if not base or x is None else round((x - base) / base * 100, 1) for x in vals]})
+                     "change_pct": [None if not base or x is None else round((x - base) / base * 100, 1)
+                                    for x in vals]})
     return rows
 
 
@@ -71,7 +72,8 @@ def headline(vs, rows):
         claim = f"{vs[0]['variant']} leads on {m['name'].lower()}"
     else:
         pct = abs(m["change_pct"][i])
-        claim = f"{vs[i]['variant']}: {m['name'].lower()} {'faster' if m['better'] == 'higher' else 'lower'} than {vs[0]['variant']}"
+        word = "faster" if m["better"] == "higher" else "lower"
+        claim = f"{vs[i]['variant']}: {m['name'].lower()} {word} than {vs[0]['variant']}"
     if pct < NOISE_PCT:
         return f"No clear {m['name'].lower()} difference (within {NOISE_PCT}%)", "≈"
     return claim, f"{pct:.0f}%" if i == 0 else f"{m['change_pct'][i]:+.0f}%"
