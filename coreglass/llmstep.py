@@ -30,8 +30,12 @@ for last in stream_generate(model, tok, ids, max_tokens=n_gen):
 weights = sum(p.stat().st_size for p in Path(model_dir).glob("*.safetensors"))
 cfg = json.loads((Path(model_dir) / "config.json").read_text())
 bits = (cfg.get("quantization") or {}).get("bits")
+readme = Path(model_dir) / "README.md"
+lines = readme.read_text().splitlines() if readme.exists() else []
+heading = next((ln[2:].strip() for ln in lines if ln.startswith("# ")), "")  # model cards open with "# org/name"
 print(json.dumps({"coreglass_result": {
-    "model": f"{cfg.get('model_type', Path(model_dir).name)}{f' {bits}-bit' if bits else ''}",
+    "model": heading.rsplit("/", 1)[-1] or f"{cfg.get('model_type', Path(model_dir).name)} {bits}-bit",
+    "arch": cfg.get("model_type"),
     "load_s": round(load_s, 2), "prompt_tokens": last.prompt_tokens,
     "prefill_tok_s": round(last.prompt_tps, 1), "ttft_ms": round((stamps[0] - t) * 1000, 1),
     "gen_tokens": last.generation_tokens, "decode_tok_s": round(last.generation_tps, 1),

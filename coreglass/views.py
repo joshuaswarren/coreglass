@@ -133,7 +133,7 @@ def frame(fid, title, subtitle, body, b, provs, demo, pill=None):
 {sun(fid)}{horizon(fid)}
 {t(60, 62, "COREGLASS", 21, f"url(#{fid}-mark)", 900, extra=f'letter-spacing="9" filter="url(#{fid}-glow)"')}
 {t(W - 60, 62, pill, 18, DIM, 500, "end", mono=True)}
-{t(60, 124, title, 52, TEXT, 800)}
+{t(60, 124, title, 52 if len(title) <= 30 else max(36, round(52 * 30 / len(title))), TEXT, 800)}
 {t(60, 162, subtitle, 22, DIM, 400)}
 {body}
 {line(60, 845, W - 60, 845, EDGE)}
