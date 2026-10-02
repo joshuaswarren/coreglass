@@ -29,7 +29,7 @@ const SANS="Inter,'SF Pro Display','Helvetica Neue','Liberation Sans',Arial,sans
 const MONO="'JetBrains Mono','SF Mono','DejaVu Sans Mono',monospace";
 const cv=document.getElementById('c'), g=cv.getContext('2d'); g.scale(2,2);
 for(const f of ["900 21px Inter","800 52px Inter","400 16px Inter","700 16px 'JetBrains Mono'"])document.fonts.load(f);
-let meta=null, S=[], marks=[], paused=false, irqMax={};
+let meta=null, S=[], marks=[], toks=[], paused=false, irqMax={};
 const lut=[...Array(256)].map((_,i)=>{const v=i/255;for(let k=1;k<CMAP.length;k++){const [a,ca]=CMAP[k-1],[b,cb]=CMAP[k];
   if(v<=b){const f=(v-a)/(b-a);return `rgb(${ca.map((p,j)=>Math.round(p+(cb[j]-p)*f)).join(',')})`}}return `rgb(${CMAP.at(-1)[1]})`});
 const col=v=>lut[Math.max(0,Math.min(255,Math.round(v*255)))];
@@ -59,6 +59,10 @@ function rows(){if(!meta)return[];const out=[];
     out.push({label:n==='gpu_fw'?'GPU fw':n.replace(/\.?[0-9a-f]{6,}\.?/,'').slice(0,8)||'ANE',group:n,
     color:n==='gpu_fw'?C.gpu:C.ane,get:s=>(s.sirq[n]??0)/Math.max(irqMax[n]||0,30)})}
   if(!eng.includes('ane')&&!meta.irq.some(n=>n!=='gpu_fw'))out.push({label:'ANE',group:'ANE',color:C.ane,none:aneWhy()});
+  const tot={},names={};for(const s of S)for(const [tid,name,b] of s.proc?.threads||[]){tot[tid]=(tot[tid]||0)+b;names[tid]=name}
+  for(const tid of Object.keys(tot).sort((a,b)=>tot[b]-tot[a]).slice(0,3))
+    out.push({label:`host·${names[tid]}`,group:'host',color:C.queue,get:s=>(s.proc?.threads||[]).find(t=>t[0]==tid)?.[2]??0});
+  if(toks.length)out.push({label:'tokens',group:'tokens',color:C.sync,ticks:true});
   return out}
 function aneWhy(){const a=meta.accel;if(!a)return 'no ANE busy data in this capture';
   return a.some(d=>d.startsWith('ane'))?'ANE driver loaded · it exports no ane_stats yet':'no ANE driver bound on this host'}
@@ -105,12 +109,12 @@ function draw(){
   const n=Math.round(WINDOW*meta.hz), cw=hw/n, rh=Math.min(28,hh/Math.max(R.length,1));
   const view=S.slice(-n), x0=hx+hw-view.length*cw;
   for(const k of meta.irq){const v=view.map(s=>s.sirq[k]||0).sort((a,b)=>a-b);irqMax[k]=v.length?v[Math.floor(.95*(v.length-1))]:0}
-  let lastLab=-99;
+  let lastLab=-99;const t1=last?last.t:0;
   R.forEach((r,i)=>{const y=top+i*rh;
     if((i===0||R[i-1].group!==r.group)&&y-lastLab>=15){lastLab=y;txt(r.group==='gpu_fw'?'GPU':r.label.split('·')[0],hx-16,y+Math.max(rh*.75,11),15,r.color,800,'right')}
     if(r.none){g.fillStyle=rgba(C.edge,.5);g.fillRect(hx,y,hw,rh-1.5);txt(r.none,hx+12,y+rh*.7,13,C.dim,600,'left',true);return}
+    if(r.ticks){g.fillStyle=r.color;for(const tt of toks)if(tt>t1-WINDOW&&tt<=t1)g.fillRect(hx+hw-(t1-tt)/WINDOW*hw,y,1.2,rh-1.5);return}
     view.forEach((s,j)=>{g.fillStyle=col(r.get(s));g.fillRect(x0+j*cw,y,cw+.6,rh-1.5)})});
-  const t1=last?last.t:0;
   for(let k=0;k<=WINDOW;k+=10){const x=hx+hw-k/WINDOW*hw;g.fillStyle='rgba(255,255,255,.12)';g.fillRect(x,top-6,1,R.length*rh+10);
     txt(k?`-${k}s`:'now',x,top+R.length*rh+20,13,C.dim,500,'center',true)}
   for(const m of marks){if(m.t<t1-WINDOW)continue;const x=hx+hw-(t1-m.t)/WINDOW*hw;g.fillStyle=C.text;g.fillRect(x-1,hy+14,2,top-hy-14+R.length*rh);
@@ -136,7 +140,8 @@ function draw(){
 let lastRecv=0;
 const es=new EventSource('/events');
 es.onmessage=e=>{if(paused)return;const m=JSON.parse(e.data);lastRecv=Date.now();
-  if(m.meta){meta=m.meta;S=[];marks=[]}else if(m.mark!==undefined)marks.push(m);else{
+  if(m.meta){meta=m.meta;S=[];marks=[];toks=[]}else if(m.mark!==undefined)marks.push(m);else if(m.tokens)toks.push(...m.tokens.t);
+  else if(m.cpu){
     const k=Math.max(1,Math.round(meta.hz)), tail=S.slice(-(k-1));m.sirq={};
     for(const n in m.irq)m.sirq[n]=avg([...tail.map(s=>s.irq[n]||0),m.irq[n]]);
     S.push(m);if(S.length>WINDOW*meta.hz*2)S.splice(0,S.length-WINDOW*meta.hz)}};

@@ -33,9 +33,9 @@ class Hub:
                 self.has_meta.set()
             else:
                 self.backlog = (self.backlog + [line])[-BACKLOG:]
-                if "mark" not in msg:
+                if "cpu" in msg:
                     self.count += 1
-                    self.t = msg.get("t", self.t)
+                    self.t = msg["t"]
             if self.record:
                 self.record.write(line + "\n")
             for q in self.clients:

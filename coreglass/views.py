@@ -610,6 +610,9 @@ def view_capture(b, demo):
              ("ANE busy · peak 1 s", st.get("ane_busy"), lambda v: f"{100 * v:.0f}%", LANE["ane"])]
     tiles += [(f"{r.replace(' Power', '')} · peak", st["rails"][r], lambda v: f"{v:.1f} W", LANE["mem"]) for r in rails[:1]]
     tiles.append(("Hottest sensor", st["temp_max"], lambda v: f"{v:.1f}°C", LANE["sync"]))
+    llm = next((r for r in (cap.get("run") or {}).get("results", []) if r.get("decode_tok_s")), None)
+    if llm:
+        tiles[-1] = (f"{llm['label']} decode tok/s", llm["decode_tok_s"], lambda v: f"{v:.0f}", LANE["sync"])
     for i, (label, v, fmt, c) in enumerate(tiles[:6]):
         x = 60 + i * 250
         body += panel(x, 190, 232, 140) + r(x + 14, 190, 204, 3, c if v is not None else EDGE)

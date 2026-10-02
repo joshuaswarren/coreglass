@@ -151,6 +151,7 @@ def summary(b):
         "bundle_digest": b["digest"],
         "host": b.get("host", {}),
         "findings": findings(b),
+        "run": (b.get("capture") or {}).get("run"),
         "not_captured": b.get("not_captured", []),
         "sources": b["sources"],
         "legend": {
@@ -175,6 +176,18 @@ def markdown(s):
         f"bundle `{s['bundle_digest']}`.\n\n"
         "## Levers, largest factor first\n\n"
         "| # | factor | kind | component | finding | prov |\n|---|---|---|---|---|---|\n"
-        f"{rows}\n\n## Not captured yet\n\n{gaps}\n\n"
+        f"{rows}\n\n{_run_md(s.get('run'))}## Not captured yet\n\n{gaps}\n\n"
         f"Factor key: {s['legend']['factor']}.\n"
     )
+
+
+def _run_md(run):
+    """Per-phase means and workload results of the capture, when the bundle has one."""
+    if not run:
+        return ""
+    keys = [k for k in run["phases"][0] if any(p[k] is not None for p in run["phases"])]
+    table = "| " + " | ".join(keys) + " |\n|" + "---|" * len(keys) + "\n" + "\n".join(
+        "| " + " | ".join("–" if p[k] is None else str(p[k]) for k in keys) + " |" for p in run["phases"])
+    res = "".join(f"\n### {r['label']}\n\n" + "\n".join(f"- {k}: {v}" for k, v in r.items() if k != "label") + "\n"
+                  for r in run["results"])
+    return f"## Run phases on {run['host']} (measured)\n\n{table}\n{res}\n"

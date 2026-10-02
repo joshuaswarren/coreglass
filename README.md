@@ -31,7 +31,7 @@ It opens in its own window and drives everything from the keyboard.
 | Key | Action |
 |---|---|
 | `1` to `9` | pick a target |
-| `l` / `r` | watch it live / run the probe (P cores, E cores, GPU matmul, ANE) |
+| `l` / `r` | watch it live / run the probe (P cores, E cores, GPU matmul, LLM, ANE) |
 | `m` / `f` / `esc` | mark the timeline / full screen / stop |
 | `↑` `↓` then `enter` | pick a capture and replay it |
 | `b` | build shareable frames from the capture |
@@ -45,7 +45,7 @@ Captures and frames live in `~/.local/share/coreglass/`.
 ```sh
 coreglass hosts                      # reachable? arch, model, load, GPU lock, MLX per target
 coreglass live m2max                 # live dashboard at http://127.0.0.1:8777/
-coreglass run m2max                  # capture + P-core, E-core, GPU, and ANE probe steps, with marks
+coreglass run m2max                  # capture + P-core, E-core, GPU, LLM, and ANE probe steps, with marks
 coreglass phases captures/<capture>.jsonl                      # per-phase means of that run
 coreglass build reference captures/<capture>.jsonl -o out/x --png   # reference = bundled measurements
 coreglass live x --replay captures/<capture>.jsonl --speed 4   # play a capture back
@@ -67,7 +67,11 @@ Today the GPU row is the firmware interrupt rate. That shows activity, not busy 
 The ANE row and tile show measured busy time on targets whose driver exports `ane_stats`.
 On other targets they say why the data is missing. `agx_stats` does the same for the GPU.
 The probe drives the ANE when the target's entry sets `ane_cmd` (see [hosts.example.toml](hosts.example.toml)).
-[docs/DESIGN.md](docs/DESIGN.md) has the producer contract and the reasons the data is missing today.
+
+Set `llm_model` to an MLX model directory, and the probe also runs a real LLM request. It records prefill and
+decode speed, time to first token, token gaps, energy per token, and the workload's CPU time per token by thread.
+It also records disk reads, faults, and kernel warnings. [docs/DESIGN.md](docs/DESIGN.md) has the full data
+coverage map, what is still missing and why, and the producer contract for the GPU and ANE drivers.
 
 ## Output
 

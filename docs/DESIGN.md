@@ -125,6 +125,12 @@ no install. The sampler is read-only and needs no root. It prints one JSON line 
 | `w{rail}`, `c{sensor}` | hwmon `power*_input`, `temp*_input` | SMC power rails (W), temperatures (°C) |
 | `irq{name}` | `/proc/interrupts` | events/s on the GPU firmware mailbox (`<gpu base + 0x8000>.mbox-recv`) and any ANE line |
 | `psi`, `mem_gb` | `/proc/pressure/*`, `/proc/meminfo` | pressure and free memory |
+| `sys` | `/proc/stat`, `/proc/vmstat`, `/proc/diskstats` | context switches/s, run queue, blocked tasks, major faults/s, swap pages/s, disk read/write MB/s |
+| `eng{gpu,ane}` | `agx_stats`, `ane_stats` | driver busy fraction and jobs/s (see "Producer contract") |
+| `proc` | the pid in `/tmp/coreglass-watch.pid`; `/proc/<pid>/stat`, `task/*/schedstat` | the workload's CPU cores busy and run-queue wait, top threads, faults/s, RSS |
+
+Lines that are not samples: `{"mark": …}` (a step boundary or a key press) and
+`{"tokens": {"label": …, "t": [...]}}` (each generated token, on the sampler clock).
 
 The server records every line to `captures/<host>-<UTC>.jsonl`, fans it out over Server-Sent Events,
 and accepts `POST /mark?label=…`, which writes a mark into the capture. The dashboard is one
@@ -133,6 +139,29 @@ and accepts `POST /mark?label=…`, which writes a mark into the capture. The da
 First receipt: on an M2 Max, a pinned busy loop showed P busy 1.000 / E 0.016 and E 1.000 / P 0.005.
 An MLX fp16 matmul loop raised the GPU firmware IRQ rate from 4.1/s to 26.0/s and the heatpipe rail
 from 4.15 W to 57.02 W.
+
+## Data coverage: what Linux LLM performance work needs
+
+One `coreglass run` with `llm_model` set answers these questions. `coreglass phases` prints them,
+`summary.json` and `summary.md` carry them for an LLM, and the app shows them under the capture.
+
+| Question | Data | Source | Status |
+|---|---|---|---|
+| How fast is a real request? | prefill tok/s, TTFT, decode tok/s, token gap p50/p99, model load s | LLM step (`llmstep.py`, mlx_lm) | measured |
+| What does a token cost the host? | workload CPU ms per token, top threads, run-queue wait, context switches/s | `proc`, `sys` | measured |
+| What does a token cost in energy? | J per token = mean system rail over the decode window / decode tok/s | hwmon rails + token times | measured |
+| How close is decode to the memory ceiling? | weight bytes read per second = weights GB × decode tok/s | model size × decode rate | modeled (ignores KV-cache reads) |
+| Is the CPU, the disk, or memory in the way? | per-core busy, cluster clocks, disk MB/s, faults, swap, PSI | `cpu`, `khz`, `sys`, `psi` | measured |
+| Did the driver complain? | kernel warnings and errors during each step | `journalctl -k -p warning` per step, in the manifest | measured |
+| How busy is the GPU? | busy fraction, jobs/s, power state | `agx_stats` | waiting on drm/asahi; today the firmware IRQ rate stands in |
+| How busy is the ANE? | busy fraction, jobs/s | `ane_stats` | measured where the driver exports it; the probe step needs `ane_cmd` |
+| GPU memory bandwidth, cache, and per-kernel time | DRAM bytes, kernel timestamps | no Linux counter yet | not captured: needs an uncore PMU driver or Vulkan timestamp queries in MLX |
+| Per-process GPU time | `drm-engine-*` in fdinfo | drm/asahi has no fdinfo usage keys | not captured |
+| Same request on macOS | the same numbers under macOS | the `reference` bundle | replay, from the lab |
+
+First LLM receipt, M1 with Qwen3.5 4-bit, 512-token prompt and 128 generated tokens: prefill 408 tok/s,
+TTFT 1,450 ms, decode 42.2 tok/s, token gap p50 23 ms / p99 60 ms, 0.385 J per token, and 14.4 ms of
+workload CPU time per token.
 
 ## The app
 
@@ -175,8 +204,11 @@ busy_patterns = ["my-benchmark"]           # optional, processes that mean "busy
   unless `--force`. It then starts a capture, waits an idle baseline, and runs each step over SSH with a
   mark before and after. `--gpu-step` wraps the command in `flock -w 60 <gpu_lock>`. With no steps it
   runs the built-in probe: spin every P core, spin every E core (cluster map from the sampler), an
-  MLX 4096×4096 fp16 matmul loop when `mlx_python` is set, and an ANE step when `ane_cmd` is set. The ANE
-  step loops `ane_cmd` for the step length under `gpu_lock` and, when set, `flock -w 60 <ane_lock>`.
+  MLX 4096×4096 fp16 matmul loop when `mlx_python` is set, a real LLM request (`llmstep.py`: warmup, then
+  `llm_prompt_tokens` prompt and `llm_gen_tokens` generated tokens) when `llm_model` is also set, and an ANE
+  step when `ane_cmd` is set. The ANE step loops `ane_cmd` for the step length under `gpu_lock` and, when
+  set, `flock -w 60 <ane_lock>`. After each step the run stores the target's kernel warnings and errors
+  in the manifest. A step that prints a `{"coreglass_result": …}` line gets its result stored too.
 - Each run writes `captures/<host>-<UTC>.jsonl` and `<same>.run.json` (`coreglass/run/v1`): host entry,
   preflight, any blockers overridden, per-step label, command, exit code, wall and capture times,
   output tails, and the Coreglass commit.

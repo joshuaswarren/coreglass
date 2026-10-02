@@ -47,7 +47,8 @@ print(json.dumps({"hostname": platform.node(), "arch": platform.machine(), "mode
 
 SPIN = "for c in {cpus}; do timeout {secs} taskset -c $c sh -c 'while :; do :; done' coreglass-spin & done; wait || true"
 MATMUL = """{py} - <<'PY'
-import time
+import os, time
+open("/tmp/coreglass-watch.pid", "w").write(str(os.getpid()))
 import mlx.core as mx
 a = mx.random.normal((4096, 4096)).astype(mx.float16)
 b = mx.random.normal((4096, 4096)).astype(mx.float16)
@@ -61,6 +62,9 @@ PY"""
 ANE = """end=$(( $(date +%s) + {secs} )); n=0
 while [ "$(date +%s)" -lt "$end" ]; do {lock}sh -c {cmd} >/dev/null || exit 3; n=$((n + 1)); done
 echo ane_batches=$n"""
+LLM = "{py} - {model} {prompt} {gen} <<'PY'\n{script}\nPY"
+LLMSTEP = Path(__file__).with_name("llmstep.py")
+RESULT = '{"coreglass_result"'
 
 
 def load_hosts():
@@ -123,8 +127,8 @@ def hosts_cmd(names):
 
 
 def probe_steps(host, meta, secs):
-    """Built-in steps: spin every P core, spin every E core, an MLX matmul under the GPU lock, then the
-    host's `ane_cmd` in a loop under the GPU lock (and `ane_lock`, when set)."""
+    """Built-in steps: spin every P core, spin every E core, an MLX matmul under the GPU lock, a real LLM
+    request (`llm_model`), then the host's `ane_cmd` in a loop under the GPU lock (and `ane_lock`, when set)."""
     by = {c["label"]: c["cpus"] for c in meta["clusters"]}
     p = [c for lab, cs in by.items() if lab != "E" for c in cs]
     steps = [("P spin", SPIN.format(cpus=" ".join(map(str, p)), secs=secs), False)] if p and "E" in by else []
@@ -134,10 +138,20 @@ def probe_steps(host, meta, secs):
         steps.append(("CPU spin", SPIN.format(cpus=" ".join(map(str, p)), secs=secs), False))
     if host.get("mlx_python"):
         steps.append(("GPU matmul", MATMUL.format(py=host["mlx_python"], secs=secs + 5), True))
+        if host.get("llm_model"):
+            steps.append(("LLM", LLM.format(py=host["mlx_python"], model=shlex.quote(host["llm_model"]),
+                                            prompt=int(host.get("llm_prompt_tokens", 512)),
+                                            gen=int(host.get("llm_gen_tokens", 128)), script=LLMSTEP.read_text()), True))
     if host.get("ane_cmd"):
         lock = f"flock -w 60 {shlex.quote(host['ane_lock'])} " if host.get("ane_lock") else ""
         steps.append(("ANE", ANE.format(secs=secs, lock=lock, cmd=shlex.quote(host["ane_cmd"])), True))
     return steps
+
+
+def kernel_log(host, since):
+    """Kernel warnings and errors since `since` (unix s) on the target, firewall noise dropped."""
+    p = ssh(host, f"journalctl -k -q --no-pager -p warning --since @{int(since)} -o short-iso", timeout=30)
+    return [ln for ln in p.stdout.splitlines() if "UFW BLOCK" not in ln][-20:]
 
 
 def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record,
@@ -176,10 +190,19 @@ def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap
             t0, w0 = session.hub.t, time.time()
             p = ssh(host, "bash -s", script, timeout=3600)
             session.mark("idle")
-            done.append({"label": label, "gpu": gpu, "cmd": cmd, "rc": p.returncode, "start_unix": w0,
-                         "end_unix": time.time(), "t_start": t0, "t_end": session.hub.t,
-                         "stdout_tail": p.stdout[-400:], "stderr_tail": p.stderr[-400:]})
-            log(f"{label}: rc={p.returncode} {p.stdout.strip()[-120:]}")
+            step = {"label": label, "gpu": gpu, "cmd": cmd[:400], "rc": p.returncode, "start_unix": w0,
+                    "end_unix": time.time(), "t_start": t0, "t_end": session.hub.t,
+                    "stdout_tail": p.stdout[-400:], "stderr_tail": p.stderr[-400:], "kernel": kernel_log(host, w0)}
+            res = next((json.loads(ln) for ln in reversed(p.stdout.splitlines()) if ln.startswith(RESULT)), None)
+            if res:
+                step["result"] = res["coreglass_result"]
+                start = session.meta["started"]
+                session.hub.publish(json.dumps({"tokens": {"label": label, "t": [round(u - start, 3)
+                                                                                  for u in res["token_unix"]]}}))
+                step["stdout_tail"] = ""
+            done.append(step)
+            summary = " ".join(f"{k}={v}" for k, v in res["coreglass_result"].items()) if res else p.stdout.strip()[-120:]
+            log(f"{label}: rc={p.returncode} {summary}" + (f" · {len(step['kernel'])} kernel warnings" if step["kernel"] else ""))
             wait(gap)
         wait(baseline)
     finally:
@@ -201,16 +224,19 @@ def _commit():
 
 
 def phases(capture):
-    """Per-phase means of a capture: the idle baseline, then each step of its .run.json (or each mark span).
+    """Per-phase means of a capture: the idle baseline, then each step of its .run.json (or each mark span),
+    plus each step's workload result with derived energy, bandwidth, and host cost per token.
 
     This is the mechanical check for the producer acceptance items in docs/DESIGN.md.
     """
     lines = [json.loads(ln) for ln in Path(capture).read_text().splitlines() if ln.strip()]
     meta = next(m["meta"] for m in lines if "meta" in m)
     samples = [m for m in lines if "cpu" in m]
+    tokens = {m["tokens"]["label"]: m["tokens"]["t"] for m in lines if "tokens" in m}
     manifest = Path(capture).with_suffix(".run.json")
-    if manifest.exists():
-        spans = [(s["label"], s["t_start"], s["t_end"]) for s in json.loads(manifest.read_text())["steps"]]
+    steps = json.loads(manifest.read_text())["steps"] if manifest.exists() else []
+    if steps:
+        spans = [(s["label"], s["t_start"], s["t_end"]) for s in steps]
     else:
         marks = [m for m in lines if "mark" in m]
         ends = [m["t"] for m in marks[1:]] + [samples[-1]["t"]]
@@ -218,25 +244,56 @@ def phases(capture):
     by = {c["label"]: c["cpus"] for c in meta["clusters"]}
     p_cpus = [c for lab, cs in by.items() if lab != "E" for c in cs]
     rail = next((r for r in meta["rails"] if "heatpipe" in r.lower()), None)
+    system = next((r for key in ("total system", "ac input", "heatpipe") for r in meta["rails"] if key in r.lower()), None)
 
     def mean(xs):
+        xs = [x for x in xs if x is not None]
         return round(sum(xs) / len(xs), 3) if xs else None
 
+    def within(a, z, pad=0.5):
+        return [s for s in samples if a + pad < s["t"] < z - pad]
+
     def summarize(label, a, z):
-        ss = [s for s in samples if a + 0.5 < s["t"] < z - 0.5]
+        ss = within(a, z)
+        sy = lambda k: mean([s.get("sys", {}).get(k) for s in ss])
+        pr = lambda k: mean([s.get("proc", {}).get(k) for s in ss])
         row = {"phase": label, "n": len(ss), "seconds": round(z - a, 1),
                "p_busy": mean([mean([s["cpu"][i] for i in p_cpus]) for s in ss]),
                "e_busy": mean([mean([s["cpu"][i] for i in by["E"]]) for s in ss]) if "E" in by else None,
                "gpu_fw_irq_s": mean([s["irq"].get("gpu_fw", 0.0) for s in ss]) if "gpu_fw" in meta["irq"] else None,
-               "heatpipe_w": mean([s["w"].get(rail, 0.0) for s in ss]) if rail else None}
+               "heatpipe_w": mean([s["w"].get(rail, 0.0) for s in ss]) if rail else None,
+               "ctx_s": sy("ctx_s"), "run_q": sy("run"), "disk_rd_mb_s": sy("rd_mb_s"), "majflt_s": sy("majflt_s"),
+               "proc_cpu": pr("cpu"), "proc_wait": pr("wait")}
         for e in meta.get("engines", []):
             row[f"{e}_busy"] = mean([s.get("eng", {}).get(e, {}).get("busy", 0.0) for s in ss])
             row[f"{e}_jobs_s"] = mean([s.get("eng", {}).get(e, {}).get("jobs_s", 0.0) for s in ss])
         return row
 
+    results = []
+    for s in steps:
+        if "result" not in s:
+            continue
+        r, t = dict(s["result"]), tokens.get(s["label"], [])
+        dec = within(t[1], t[-1], pad=0) if len(t) > 2 else []
+        tps = r.get("decode_tok_s") or 0
+        watts = mean([x["w"].get(system) for x in dec]) if system else None
+        cpu = mean([x.get("proc", {}).get("cpu") for x in dec])
+        r.update({"label": s["label"], "kernel_warnings": len(s.get("kernel", [])), "decode_samples": len(dec),
+                  "system_w": watts, "j_per_token": round(watts / tps, 3) if watts and tps else None,
+                  "host_cpu_ms_per_token": round(cpu / tps * 1000, 2) if cpu is not None and tps else None,
+                  "weights_gb_s_modeled": round(r["weights_gb"] * tps, 1) if r.get("weights_gb") and tps else None,
+                  "token_gap_ms_p50_p99": _pcts([(b - a) * 1000 for a, b in zip(t[1:], t[2:])])})
+        results.append(r)
     first = spans[0][1] if spans else samples[-1]["t"]
-    return {"host": meta["host"], "engines": meta.get("engines", []),
-            "phases": [summarize("idle", samples[0]["t"], first)] + [summarize(*s) for s in spans]}
+    return {"host": meta["host"], "engines": meta.get("engines", []), "system_rail": system,
+            "phases": [summarize("idle", samples[0]["t"], first)] + [summarize(*s) for s in spans], "results": results}
+
+
+def _pcts(xs):
+    if not xs:
+        return None
+    xs = sorted(xs)
+    return [round(xs[len(xs) // 2], 1), round(xs[min(len(xs) - 1, int(len(xs) * 0.99))], 1)]
 
 
 def phases_cmd(capture, as_json):
@@ -244,9 +301,15 @@ def phases_cmd(capture, as_json):
     if as_json:
         print(json.dumps(out, indent=1))
         return
-    keys = [k for k in out["phases"][0] if k not in ("phase", "n", "seconds") and out["phases"][0][k] is not None]
+    keys = [k for k in out["phases"][0] if k not in ("phase", "n", "seconds")
+            and any(r[k] is not None for r in out["phases"])]
     print(f"{out['host']}  engines: {', '.join(out['engines']) or 'none (GPU = firmware IRQ proxy)'}")
     print(f"{'phase':<14} {'n':>4} {'sec':>6} " + " ".join(f"{k:>13}" for k in keys))
     for r in out["phases"]:
         print(f"{r['phase'][:14]:<14} {r['n']:>4} {r['seconds']:>6} "
               + " ".join(f"{'-' if r[k] is None else r[k]:>13}" for k in keys))
+    for r in out["results"]:
+        print(f"\n{r['label']} result ({out['system_rail'] or 'no system rail'} for energy):")
+        for k, v in r.items():
+            if k != "label":
+                print(f"  {k:<24} {v}")

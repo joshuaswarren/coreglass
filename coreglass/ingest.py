@@ -13,6 +13,8 @@ import re
 import statistics
 from pathlib import Path
 
+from . import remote
+
 LAB_ROOT_ENV = "COREGLASS_LAB_ROOT"
 
 
@@ -54,6 +56,21 @@ def capture(path, cols=320):
         rows.append({"label": "GPU fw" if name == "gpu_fw" else name, "group": "GPU" if name == "gpu_fw" else "ANE",
                      "lane": "gpu" if name == "gpu_fw" else "ane",
                      "values": _bins([min(r / top, 1.0) for r in rate], cols), "p95_per_s": top})
+    tot = {}
+    for s in samples:
+        for tid, name, busy, _ in s.get("proc", {}).get("threads", []):
+            tot[(tid, name)] = tot.get((tid, name), 0.0) + busy
+    for tid, name in sorted(tot, key=lambda k: -tot[k])[:3]:
+        rows.append({"label": f"host·{name}", "group": "HOST", "lane": "queue", "values": _bins(
+            [next((b for t, _, b, _ in s.get("proc", {}).get("threads", []) if t == tid), 0.0) for s in samples], cols)})
+    toks = [t for m in lines if "tokens" in m for t in m["tokens"]["t"]]
+    if toks:
+        span = (samples[-1]["t"] - samples[0]["t"]) / cols
+        hist = [0] * cols
+        for t in toks:
+            hist[min(cols - 1, max(0, int((t - samples[0]["t"]) / span)))] += 1
+        top = max(hist)
+        rows.append({"label": "tokens", "group": "TOKENS", "lane": "sync", "values": [round(h / top, 3) for h in hist]})
     t0 = samples[0]["t"]
     src = Path(path).name
     step = max(len(samples) // 300, 1)
@@ -89,7 +106,7 @@ def capture(path, cols=320):
                    for c in sorted(meta["clusters"], key=lambda c: -c["max_khz"])[:4]},
         "max_ghz": max(c["max_khz"] for c in meta["clusters"]) / 1e6,
         "marks": [{"t": round(m["t"] - t0, 2), "label": m["mark"]} for m in lines if "mark" in m],
-        "prov": "measured", "src": src}}
+        "run": remote.phases(path), "prov": "measured", "src": src}}
 
 
 def host_profile(run, root):

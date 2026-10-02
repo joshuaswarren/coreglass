@@ -7,6 +7,9 @@ Sources (all Linux procfs/sysfs, no root):
   w, c   hwmon power rails (W) and temperatures (deg C)
   irq    interrupts/s for the GPU firmware mailbox and any ANE line (activity proxy, not busy time)
   psi    /proc/pressure some avg10; mem_gb = MemAvailable
+  sys    context switches/s, run queue, blocked tasks, major faults/s, swap pages/s, disk MB/s
+  proc   the process whose pid is in /tmp/coreglass-watch.pid (a workload writes it): CPU cores busy and
+         run-queue wait per thread (schedstat), faults/s, RSS
 """
 
 import glob
@@ -99,6 +102,67 @@ def psi():
     return out
 
 
+DISK = re.compile(r"nvme\d+n\d+|sd[a-z]+|vd[a-z]+|mmcblk\d+")
+WATCH = "/tmp/coreglass-watch.pid"
+
+
+def sys_counters():
+    """Cumulative system counters; `sys_delta` turns two snapshots into rates."""
+    out = {}
+    for path, keys in (("/proc/stat", ("ctxt", "procs_running", "procs_blocked")),
+                       ("/proc/vmstat", ("pgmajfault", "pswpin", "pswpout"))):
+        for ln in read(path).splitlines():
+            k, _, v = ln.partition(" ")
+            if k in keys:
+                out[k] = int(v)
+    out["rd"] = out["wr"] = 0
+    for ln in read("/proc/diskstats").splitlines():
+        p = ln.split()
+        if len(p) > 9 and DISK.fullmatch(p[2]):
+            out["rd"] += int(p[5])
+            out["wr"] += int(p[9])
+    return out
+
+
+def sys_delta(a, b, dt):
+    rate = lambda k, scale=1.0: round((b.get(k, 0) - a.get(k, 0)) * scale / dt, 1)
+    return {"ctx_s": rate("ctxt"), "run": b.get("procs_running", 0), "blocked": b.get("procs_blocked", 0),
+            "majflt_s": rate("pgmajfault"), "swap_s": round(rate("pswpin") + rate("pswpout"), 1),
+            "rd_mb_s": rate("rd", 512 / 1e6), "wr_mb_s": rate("wr", 512 / 1e6)}
+
+
+def proc_snapshot():
+    """Per-thread run/wait ns, faults, and RSS of the watched process, or None."""
+    pid = read(WATCH)
+    if not pid.isdigit():
+        return None
+    st = read(f"/proc/{pid}/stat")
+    if not st:
+        return None
+    rest = st.rsplit(")", 1)[1].split()
+    threads = {}
+    for task in glob.glob(f"/proc/{pid}/task/*"):
+        ss = read(task + "/schedstat").split()
+        if len(ss) >= 2:
+            threads[os.path.basename(task)] = (read(task + "/comm"), int(ss[0]), int(ss[1]))
+    return {"pid": int(pid), "name": read(f"/proc/{pid}/comm"), "minflt": int(rest[7]), "majflt": int(rest[9]),
+            "rss_gb": round(int(rest[21]) * os.sysconf("SC_PAGE_SIZE") / 2**30, 2), "threads": threads}
+
+
+def proc_delta(a, b, dt):
+    if not a or not b or a["pid"] != b["pid"]:
+        return None
+    th = []
+    for tid, (name, run, wait) in b["threads"].items():
+        _, run0, wait0 = a["threads"].get(tid, (name, run, wait))
+        th.append([int(tid), name, round((run - run0) / 1e9 / dt, 3), round((wait - wait0) / 1e9 / dt, 3)])
+    th.sort(key=lambda x: -x[2])
+    return {"pid": b["pid"], "name": b["name"], "cpu": round(sum(x[2] for x in th), 3),
+            "wait": round(sum(x[3] for x in th), 3), "nthreads": len(th), "threads": [x for x in th if x[2] >= 0.01][:8],
+            "majflt_s": round((b["majflt"] - a["majflt"]) / dt, 1), "minflt_s": round((b["minflt"] - a["minflt"]) / dt, 1),
+            "rss_gb": b["rss_gb"]}
+
+
 ENGINE_FILES = {"gpu": "/sys/class/drm/card*/device/agx_stats", "ane": "/sys/class/accel/accel*/device/ane_stats"}
 
 
@@ -130,20 +194,21 @@ def main():
     hz = float(sys.argv[sys.argv.index("--hz") + 1]) if "--hz" in sys.argv else 10.0
     cl, rails, want, eng = clusters(), hwmon(), irq_names(), engines()
     model = read("/proc/device-tree/model").rstrip("\x00") or read("/sys/devices/virtual/dmi/id/product_name")
+    prev_cpu, prev_irq, prev_sys, prev_proc = cpu_times(), irq_counts(want), sys_counters(), proc_snapshot()
+    prev_eng = {name: read_kv(p) for name, p in eng.items()}
+    started, t0 = time.time(), time.monotonic()
     print(json.dumps({"meta": {
         "host": socket.gethostname(), "kernel": os.uname().release, "model": model, "hz": hz,
-        "ncpu": len(cpu_times()), "clusters": [{k: c[k] for k in ("name", "label", "cpus", "max_khz")} for c in cl],
+        "ncpu": len(prev_cpu), "clusters": [{k: c[k] for k in ("name", "label", "cpus", "max_khz")} for c in cl],
         "rails": sorted(label for kind, label in rails if kind == "w"),
         "temps": sorted(label for kind, label in rails if kind == "c"),
-        "irq": sorted(irq_counts(want)), "engines": sorted(eng), "started": time.time(),
+        "irq": sorted(prev_irq), "engines": sorted(eng), "started": started,
         "accel": sorted({os.path.basename(os.path.realpath(p)) for p in glob.glob("/sys/class/accel/accel*/device/driver")}),
     }}), flush=True)
-    prev_cpu, prev_irq, prev_t = cpu_times(), irq_counts(want), time.monotonic()
-    prev_eng = {name: read_kv(p) for name, p in eng.items()}
-    t0 = prev_t
+    prev_t = t0
     while True:
         time.sleep(max(0.0, 1 / hz - (time.monotonic() - prev_t)))
-        now, cpu, irq = time.monotonic(), cpu_times(), irq_counts(want)
+        now, cpu, irq, sysc, proc = time.monotonic(), cpu_times(), irq_counts(want), sys_counters(), proc_snapshot()
         cur_eng = {name: read_kv(p) for name, p in eng.items()}
         dt = now - prev_t
         busy = []
@@ -158,11 +223,14 @@ def main():
             "irq": {k: round((v - prev_irq.get(k, v)) / dt, 1) for k, v in irq.items()},
             "psi": psi(),
             "mem_gb": round(int(re.search(r"MemAvailable:\s+(\d+)", read("/proc/meminfo")).group(1)) / 1048576, 2),
+            "sys": sys_delta(prev_sys, sysc, dt),
         }
         if eng:
             sample["eng"] = {name: engine_delta(prev_eng[name], cur_eng[name], dt) for name in eng}
+        if (pd := proc_delta(prev_proc, proc, dt)) is not None:
+            sample["proc"] = pd
         print(json.dumps(sample, separators=(",", ":")), flush=True)
-        prev_cpu, prev_irq, prev_t, prev_eng = cpu, irq, now, cur_eng
+        prev_cpu, prev_irq, prev_t, prev_eng, prev_sys, prev_proc = cpu, irq, now, cur_eng, sysc, proc
 
 
 if __name__ == "__main__":

@@ -152,6 +152,27 @@ class Remote(unittest.TestCase):
         self.assertEqual(rows["GPU"]["gpu_busy"], 0.95)
         self.assertEqual(rows["idle"]["gpu_busy"], 0.01)
 
+    def test_llm_result_derives_per_token_cost_from_the_decode_window_only(self):
+        meta = {"meta": {"host": "m1", "hz": 1, "rails": ["Heatpipe Power", "Total System Power"], "irq": [],
+                         "clusters": [{"label": "P0", "cpus": [0]}]}}
+        decode = lambda t: 21 < t < 30
+        samples = [{"t": float(t), "cpu": [0.0], "irq": {},
+                    "w": {"Heatpipe Power": 3.0, "Total System Power": 20.0 if decode(t) else 40.0},
+                    "proc": {"cpu": 0.5 if decode(t) else 1.0, "wait": 0.0}} for t in range(50)]
+        tokens = {"tokens": {"label": "LLM", "t": [float(t) for t in range(20, 31)]}}
+        steps = [{"label": "LLM", "t_start": 10.0, "t_end": 31.0, "kernel": ["agx: fault"],
+                  "result": {"decode_tok_s": 10.0, "weights_gb": 1.5}}]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cap.jsonl"
+            path.write_text("\n".join(json.dumps(x) for x in [meta, *samples, tokens]))
+            path.with_suffix(".run.json").write_text(json.dumps({"steps": steps}))
+            out = remote.phases(path)
+        r = out["results"][0]
+        self.assertEqual(out["system_rail"], "Total System Power")
+        self.assertEqual((r["j_per_token"], r["host_cpu_ms_per_token"]), (2.0, 50.0))
+        self.assertEqual((r["weights_gb_s_modeled"], r["token_gap_ms_p50_p99"], r["kernel_warnings"]),
+                         (15.0, [1000.0, 1000.0], 1))
+
 
 class Render(unittest.TestCase):
     def test_every_frame_is_valid_svg_and_demo_is_stamped(self):
