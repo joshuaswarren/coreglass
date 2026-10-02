@@ -136,6 +136,7 @@ def main():
         "rails": sorted(label for kind, label in rails if kind == "w"),
         "temps": sorted(label for kind, label in rails if kind == "c"),
         "irq": sorted(irq_counts(want)), "engines": sorted(eng), "started": time.time(),
+        "accel": sorted({os.path.basename(os.path.realpath(p)) for p in glob.glob("/sys/class/accel/accel*/device/driver")}),
     }}), flush=True)
     prev_cpu, prev_irq, prev_t = cpu_times(), irq_counts(want), time.monotonic()
     prev_eng = {name: read_kv(p) for name, p in eng.items()}

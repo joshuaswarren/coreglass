@@ -58,7 +58,10 @@ function rows(){if(!meta)return[];const out=[];
   for(const n of meta.irq){if(n==='gpu_fw'&&eng.includes('gpu'))continue;
     out.push({label:n==='gpu_fw'?'GPU fw':n.replace(/\.?[0-9a-f]{6,}\.?/,'').slice(0,8)||'ANE',group:n,
     color:n==='gpu_fw'?C.gpu:C.ane,get:s=>(s.sirq[n]??0)/Math.max(irqMax[n]||0,30)})}
+  if(!eng.includes('ane')&&!meta.irq.some(n=>n!=='gpu_fw'))out.push({label:'ANE',group:'ANE',color:C.ane,none:aneWhy()});
   return out}
+function aneWhy(){const a=meta.accel;if(!a)return 'no ANE busy data in this capture';
+  return a.some(d=>d.startsWith('ane'))?'ANE driver loaded · it exports no ane_stats yet':'no ANE driver bound on this host'}
 function pickRail(pref){if(!meta||!meta.rails.length)return null;for(const p of pref){const r=meta.rails.find(x=>x.toLowerCase().includes(p));if(r)return r}return null}
 function avg(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
 function clusterBusy(s,label){const cs=meta.clusters.filter(c=>label==='E'?c.label==='E':c.label!=='E').flatMap(c=>c.cpus);return avg(cs.map(i=>s.cpu[i]??0))}
@@ -75,7 +78,7 @@ function draw(){
   if(meta)txt([meta.host,meta.model,meta.kernel].filter(Boolean).join(' · '),W-60,62,17,C.dim,500,'right',true);
   const last=S[S.length-1];
   txt(meta?`${meta.replay?'Replay':'Live'} · ${meta.host}`:'Waiting for sampler…',60,124,52,C.text,800);
-  if(meta)txt(`Per-core CPU, GPU firmware events, power · ${meta.hz} Hz · ${last?last.t.toFixed(1):'0.0'} s · ${S.length} samples in view`,60,162,22,C.dim);
+  if(meta)txt(`Per-core CPU, GPU, ANE, power · ${meta.hz} Hz · ${last?last.t.toFixed(1):'0.0'} s · ${S.length} samples in view`,60,162,22,C.dim);
   if(!meta){requestAnimationFrame(draw);return}
   const recent=S.slice(-Math.max(1,Math.round(meta.hz)));
   const sys=pickRail(['total system','system']), soc=pickRail(['heatpipe','package','soc','cpu']);
@@ -86,12 +89,14 @@ function draw(){
     ...((meta.engines||[]).includes('gpu')
       ?[['GPU busy (driver)',v=>(100*v).toFixed(0)+'%',s=>s.eng?.gpu?.busy??0,C.gpu,1,true]]
       :[['GPU firmware events',v=>v.toFixed(0)+'/s',s=>s.irq.gpu_fw||0,C.gpu,0,meta.irq.includes('gpu_fw')]]),
+    ['ANE busy (driver)',v=>(100*v).toFixed(0)+'%',s=>s.eng?.ane?.busy??0,C.ane,1,(meta.engines||[]).includes('ane'),aneWhy()],
     [soc||'SoC power rail',v=>v.toFixed(1)+' W',s=>soc?s.w[soc]||0:0,C.mem,0,!!soc],
     [sys||'System power rail',v=>v.toFixed(1)+' W',s=>sys?s.w[sys]||0:0,C.mem,0,!!sys],
     ['Hottest sensor',v=>v.toFixed(1)+'°C',s=>Math.max(...Object.values(s.c),0),C.sync,0,meta.temps.length>0]];
-  tiles.forEach(([label,fmt,get,c,unit,ok],i)=>{const x=60+i*250,y=188,w=232,h=142;rr(x,y,w,h,14,C.panel,C.edge);g.fillStyle=ok?c:C.edge;g.fillRect(x+14,y,w-28,3);
-    txt(label.length>24?label.slice(0,23)+'…':label,x+18,y+30,15,C.dim,600);
-    if(!ok){txt('n/a',x+18,y+84,46,C.edge,800);txt('no source on this host',x+18,y+118,13,C.dim);return}
+  const tw=(1480-18*(tiles.length-1))/tiles.length;
+  tiles.forEach(([label,fmt,get,c,unit,ok,why],i)=>{const x=60+i*(tw+18),y=188,w=tw,h=142;rr(x,y,w,h,14,C.panel,C.edge);g.fillStyle=ok?c:C.edge;g.fillRect(x+14,y,w-28,3);
+    txt(label.length>22?label.slice(0,21)+'…':label,x+18,y+30,15,C.dim,600);
+    if(!ok){txt('n/a',x+18,y+84,46,C.edge,800);(why||'no source on this host').split(' · ').forEach((l,k)=>txt(l,x+18,y+110+k*16,12,C.dim));return}
     const v=avg(recent.map(get));g.shadowColor=c;g.shadowBlur=18;txt(last?fmt(v):'–',x+18,y+84,46,c,800);g.shadowBlur=0;
     spark(x+18,y+96,w-36,34,S.map(get),c,unit?1:0)});
   const R=rows(), hx=170, hy=372, hw=1370, hh=268, top=hy+40;
@@ -103,6 +108,7 @@ function draw(){
   let lastLab=-99;
   R.forEach((r,i)=>{const y=top+i*rh;
     if((i===0||R[i-1].group!==r.group)&&y-lastLab>=15){lastLab=y;txt(r.group==='gpu_fw'?'GPU':r.label.split('·')[0],hx-16,y+Math.max(rh*.75,11),15,r.color,800,'right')}
+    if(r.none){g.fillStyle=rgba(C.edge,.5);g.fillRect(hx,y,hw,rh-1.5);txt(r.none,hx+12,y+rh*.7,13,C.dim,600,'left',true);return}
     view.forEach((s,j)=>{g.fillStyle=col(r.get(s));g.fillRect(x0+j*cw,y,cw+.6,rh-1.5)})});
   const t1=last?last.t:0;
   for(let k=0;k<=WINDOW;k+=10){const x=hx+hw-k/WINDOW*hw;g.fillStyle='rgba(255,255,255,.12)';g.fillRect(x,top-6,1,R.length*rh+10);
@@ -122,7 +128,9 @@ function draw(){
     txt(`${c.label} ${last?((last.khz[c.label]||0)/1e6).toFixed(2):''}`,1520,770+i*18,12,c.label==='E'?C.e:pal[i+1],700,'right',true)});
   g.fillStyle=C.edge;g.fillRect(60,848,1480,1);
   chip(60,858,'MEASURED',P.measured);
-  txt('read-only procfs/sysfs sampler · GPU row = firmware mailbox IRQ rate (activity proxy, not busy time)',214,876,13,C.dim);
+  const en=meta.engines||[];
+  txt(['read-only procfs/sysfs sampler',en.includes('gpu')?'GPU = driver busy time':'GPU = firmware IRQ rate (activity proxy, not busy time)',
+    en.includes('ane')?'ANE = driver busy time':'ANE busy needs ane_stats'].join(' · '),214,876,13,C.dim);
   txt(`coreglass live · ${new Date().toISOString().slice(0,19)}Z`,W-60,876,13,C.dim,400,'right',true);
   requestAnimationFrame(draw)}
 let lastRecv=0;

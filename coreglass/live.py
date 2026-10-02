@@ -76,12 +76,13 @@ class LiveHandler(BaseHTTPRequestHandler):
 
     def serve_events(self):
         hub = self.hub()
-        if hub is None:
-            return self.send_error(404, "no active session")
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
+        if hub is None:  # session still connecting: tell EventSource to reconnect in 1 s
+            self.wfile.write(b"retry: 1000\n\n")
+            return
         q = hub.subscribe()
         try:
             while True:

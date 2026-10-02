@@ -174,8 +174,9 @@ busy_patterns = ["my-benchmark"]           # optional, processes that mean "busy
 - `coreglass run <host>` refuses when the preflight finds a held GPU lock, load1 ≥ 0.5, or a busy process,
   unless `--force`. It then starts a capture, waits an idle baseline, and runs each step over SSH with a
   mark before and after. `--gpu-step` wraps the command in `flock -w 60 <gpu_lock>`. With no steps it
-  runs the built-in probe: spin every P core, spin every E core (cluster map from the sampler), and an
-  MLX 4096×4096 fp16 matmul loop when `mlx_python` is set.
+  runs the built-in probe: spin every P core, spin every E core (cluster map from the sampler), an
+  MLX 4096×4096 fp16 matmul loop when `mlx_python` is set, and an ANE step when `ane_cmd` is set. The ANE
+  step loops `ane_cmd` for the step length under `gpu_lock` and, when set, `flock -w 60 <ane_lock>`.
 - Each run writes `captures/<host>-<UTC>.jsonl` and `<same>.run.json` (`coreglass/run/v1`): host entry,
   preflight, any blockers overridden, per-step label, command, exit code, wall and capture times,
   output tails, and the Coreglass commit.
@@ -261,7 +262,7 @@ Acceptance for each producer:
 
 1. The file exists, is readable without root, and matches the format above. `coreglass hosts` lists it
    under `stats` (`agx_stats`, `ane_stats`).
-2. Under `coreglass run <host>` (built-in probe, or `--step 'ANE encoder=<cmd>'` for the ANE), then
+2. Under `coreglass run <host>` (built-in probe; set `ane_cmd` for the ANE step), then
    `coreglass phases captures/<file>.jsonl`: `gpu_busy` (or `ane_busy`) ≥ 0.9 in the matmul (or ANE
    encoder) phase and ≤ 0.05 in the idle phase.
 3. `busy_ns` advances by no more than wall time per tick, and `jobs` matches the submissions the workload

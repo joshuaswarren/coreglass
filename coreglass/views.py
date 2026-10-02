@@ -104,12 +104,13 @@ def horizon(fid, y0=828, alpha=0.42):
     return f'<g opacity="{alpha}">{out}</g>'
 
 
-def frame(fid, title, subtitle, body, b, provs, demo):
+def frame(fid, title, subtitle, body, b, provs, demo, pill=None):
     host = b.get("host", {})
-    pill = " · ".join(str(host[k]) for k in ("alias", "chip", "soc", "os", "kernel") if host.get(k))
     cap = b.get("capture")
-    if cap and cap["host"] not in pill:
-        pill += f"  +  live: {cap['host']}"
+    if pill is None:
+        pill = " · ".join(str(host[k]) for k in ("alias", "chip", "soc", "os", "kernel") if host.get(k))
+        if cap and cap["host"] not in pill:
+            pill += f"  +  live: {cap['host']}"
     used = sorted({p for p in provs if p} | ({"demo"} if demo else set()), key=list(PROV).index)
     foot, x = "", 60
     for p in used:
@@ -605,15 +606,17 @@ def view_capture(b, demo):
              ("E cores · peak 1 s", st["e_busy"], lambda v: f"{100 * v:.0f}%", PAL["e"]),
              ("GPU busy · peak 1 s", st["gpu_busy"], lambda v: f"{100 * v:.0f}%", LANE["gpu"])
              if st.get("gpu_busy") is not None else
-             ("GPU fw events · peak", st["gpu_irq"], lambda v: f"{v:.0f}/s", LANE["gpu"])]
-    tiles += [(f"{r.replace(' Power', '')} · peak", st["rails"][r], lambda v: f"{v:.1f} W", LANE["mem"]) for r in rails[:2]]
+             ("GPU fw events · peak", st["gpu_irq"], lambda v: f"{v:.0f}/s", LANE["gpu"]),
+             ("ANE busy · peak 1 s", st.get("ane_busy"), lambda v: f"{100 * v:.0f}%", LANE["ane"])]
+    tiles += [(f"{r.replace(' Power', '')} · peak", st["rails"][r], lambda v: f"{v:.1f} W", LANE["mem"]) for r in rails[:1]]
     tiles.append(("Hottest sensor", st["temp_max"], lambda v: f"{v:.1f}°C", LANE["sync"]))
     for i, (label, v, fmt, c) in enumerate(tiles[:6]):
         x = 60 + i * 250
         body += panel(x, 190, 232, 140) + r(x + 14, 190, 204, 3, c if v is not None else EDGE)
         body += t(x + 18, 220, label, 15, DIM, 600)
+        why = "driver exports no ane_stats" if label.startswith("ANE") else "no source on this host"
         body += (t(x + 18, 290, fmt(v), 50, c, 800, extra='filter="url(#capture-glow)"') if v is not None
-                 else t(x + 18, 290, "n/a", 50, EDGE, 800) + t(x + 18, 316, "no source on this host", 13, DIM))
+                 else t(x + 18, 290, "n/a", 50, EDGE, 800) + t(x + 18, 316, why, 13, DIM))
     body += panel(60, 350, 1480, 350, "Per-core occupancy (measured)")
     body += capture_heat(b, 80, 398, 1440, 296)
     body += panel(60, 716, 730, 124, "Power rails (W)") + panel(810, 716, 730, 124, "Cluster clocks (GHz)")
@@ -630,7 +633,7 @@ def view_capture(b, demo):
         body += t(1520, 768 + i * 18, f"{lab} max {max(vals):.2f}", 12, c, 700, "end", mono=True)
     return frame("capture", f"Live capture · {cap['host']}",
                  f"{cap['model']} · {cap['seconds']:g} s at {cap['hz']:g} Hz · {len(cap['marks'])} marks", body, b,
-                 ["measured"], demo)
+                 ["measured"], demo, pill=" · ".join(x for x in (cap["host"], cap["kernel"]) if x))
 
 
 VIEWS = [("hero", view_hero), ("time", view_time), ("bandwidth", view_bandwidth),

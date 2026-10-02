@@ -89,7 +89,7 @@ BODY = """
 <div id="splash"><div><div class="sun"></div><div class="mark">Coreglass</div></div></div>
 <div id="help" hidden onclick="toggleHelp()"><div class="card"><span class="mark">Keys</span><dl>
 <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>pick a target</dd><dt><kbd>l</kbd></dt><dd>watch the target live</dd>
-<dt><kbd>r</kbd></dt><dd>run the probe: P cores, E cores, GPU matmul</dd><dt><kbd>esc</kbd></dt><dd>stop</dd>
+<dt><kbd>r</kbd></dt><dd>run the probe: P cores, E cores, GPU matmul, ANE</dd><dt><kbd>esc</kbd></dt><dd>stop</dd>
 <dt><kbd>m</kbd></dt><dd>drop a mark on the timeline</dd><dt><kbd>f</kbd></dt><dd>full-screen the live screen</dd>
 <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>pick a capture</dd><dt><kbd>enter</kbd></dt><dd>replay it</dd>
 <dt><kbd>b</kbd></dt><dd>build shareable frames</dd><dt><kbd>t</kbd></dt><dd>synthwave ⇄ your Omarchy theme</dd>
@@ -111,7 +111,8 @@ function renderHosts(){$('#hosts').innerHTML=hosts.map((h,i)=>{const p=h.preflig
   const busy=h.blockers.length>0;return `<div class="host ${i===hi?'sel':''}" onclick="hi=${i};renderHosts()">
   <div class="hn"><kbd>${i+1}</kbd><b>${esc(h.name)}</b><span class="badge ${cls}">${txt}</span></div>
   <div class="hm">${esc(p.reachable?p.model.replace(/^Apple /,''):h.ssh)}</div>
-  ${p.reachable?`<div class="hx">${esc(p.arch)} · load ${p.load1.toFixed(2)} · MLX ${p.mlx_python?'✓':'–'} · stats ${p.stats.length?esc(p.stats.join(',')):'–'}</div>`:''}
+  ${p.reachable?`<div class="hx">${esc(p.arch)} · load ${p.load1.toFixed(2)} · GPU ${p.stats.includes('agx_stats')?'stats':'irq'} · MLX ${p.mlx_python?'✓':'–'}</div>
+  <div class="hx">ANE ${p.stats.includes('ane_stats')?'stats ✓':(p.accel||[]).some(d=>d.startsWith('ane'))?'driver, no stats':'–'} · ANE probe ${h.ane?'✓':'–'}</div>`:''}
   ${busy?`<div class="why">${esc(h.blockers[0])}</div>`:''}
   <div class="hb"><button onclick="event.stopPropagation();hi=${i};live()" ${p.reachable?'':'disabled'}>Live<kbd>l</kbd></button>
   <button class="primary" onclick="event.stopPropagation();hi=${i};run()" ${busy||!p.reachable?'disabled':''}>Run probe<kbd>r</kbd></button></div></div>`}).join('')}

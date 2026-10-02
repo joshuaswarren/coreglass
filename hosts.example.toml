@@ -4,9 +4,14 @@
 # gpu_lock:      flock file that serializes GPU work on the target; --gpu-step and the MLX probe run under it.
 # mlx_python:    optional interpreter with MLX, enables the built-in GPU probe step.
 # busy_patterns: optional substrings of process command lines that mean "a benchmark is running; do not start".
+# ane_cmd:       optional shell command that runs one batch of ANE work; the probe loops it for the ANE step,
+#                under gpu_lock and, when set, ane_lock.
+# ane_lock:      optional flock file your ANE tools already use.
 
 [m2max]
 ssh = "m2max-linux"
 gpu_lock = "/tmp/gpu.lock"
 mlx_python = "/opt/mlx-venv/bin/python"
 busy_patterns = ["my-benchmark"]
+ane_cmd = "ane-run --anec /opt/ane/add.anec --in 0=/tmp/a.fp16 --in 1=/tmp/b.fp16 --out 0=/tmp/y.fp16 --repeat 200"
+ane_lock = "/tmp/ane.lock"

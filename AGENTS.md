@@ -26,7 +26,7 @@ Python 3.11+, standard library only. Chrome or Chromium is needed only for `--pn
 | Tests | `python3 -m unittest discover -s tests` |
 
 Targets come from `~/.config/coreglass/hosts.toml` (format: `hosts.example.toml`). Each entry has
-`ssh`, `gpu_lock`, and optional `mlx_python` and `busy_patterns`. A bare SSH alias also works.
+`ssh`, `gpu_lock`, and optional `mlx_python`, `busy_patterns`, `ane_cmd`, and `ane_lock`. A bare SSH alias also works.
 
 ## Rules for runs on shared machines
 

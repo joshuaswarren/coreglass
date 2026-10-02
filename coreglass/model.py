@@ -7,6 +7,7 @@ modeled or demo value off as a measurement.
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 SCHEMA = "coreglass/v1"
@@ -51,7 +52,8 @@ def anonymize(b):
     cap, host = b.get("capture") or {}, b.get("host", {})
     swaps = {host.get(k): "" for k in ("alias", "kernel", "runtime") if host.get(k)}
     if cap:
-        swaps |= {cap["host"]: (cap.get("model") or "target").removeprefix("Apple "), cap["src"]: "capture"}
+        chip = re.search(r"\bM\d+(?: (?:Pro|Max|Ultra))?\b", cap.get("model", ""))
+        swaps |= {cap["host"]: chip.group(0) if chip else "target", cap["src"]: "capture"}
         swaps |= {cap["kernel"]: ""} if cap.get("kernel") else {}
     text = json.dumps(b)
     for old, new in sorted(swaps.items(), key=lambda kv: -len(kv[0])):

@@ -77,6 +77,8 @@ def capture(path, cols=320):
         "gpu_irq": peak([s["irq"].get("gpu_fw", 0.0) for s in samples]) if "gpu_fw" in meta["irq"] else None,
         "gpu_busy": peak([s.get("eng", {}).get("gpu", {}).get("busy", 0.0) for s in samples]) if "gpu" in engines
         else None,
+        "ane_busy": peak([s.get("eng", {}).get("ane", {}).get("busy", 0.0) for s in samples]) if "ane" in engines
+        else None,
         "rails": {r: peak([s["w"].get(r, 0.0) for s in samples]) for r in rails},
         "temp_max": max((v for s in samples for v in s["c"].values()), default=None),
     }

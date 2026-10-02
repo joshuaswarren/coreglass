@@ -37,10 +37,12 @@ for d in os.listdir("/proc"):
 model = open("/proc/device-tree/model").read().strip("\0\n") if os.path.exists("/proc/device-tree/model") else ""
 stats = {name: any(os.access(p, os.R_OK) for p in glob.glob(pat)) for name, pat in
          (("agx_stats", "/sys/class/drm/card*/device/agx_stats"), ("ane_stats", "/sys/class/accel/accel*/device/ane_stats"))}
+accel = sorted({os.path.basename(os.path.realpath(p)) for p in glob.glob("/sys/class/accel/accel*/device/driver")})
 print(json.dumps({"hostname": platform.node(), "arch": platform.machine(), "model": model,
                   "kernel": platform.release(), "python": platform.python_version(),
                   "load1": os.getloadavg()[0], "gpu_lock_held": held(lock), "busy": busy[:3],
-                  "mlx_python": bool(mlx) and os.access(mlx, os.X_OK), "stats": [k for k, v in stats.items() if v]}))
+                  "mlx_python": bool(mlx) and os.access(mlx, os.X_OK), "stats": [k for k, v in stats.items() if v],
+                  "accel": accel}))
 """
 
 SPIN = "for c in {cpus}; do timeout {secs} taskset -c $c sh -c 'while :; do :; done' coreglass-spin & done; wait || true"
@@ -56,6 +58,9 @@ while time.time() < end:
     n += 1
 print(f"matmuls={{n}} tflops={{n * 2 * 4096**3 / {secs} / 1e12:.2f}}", flush=True)
 PY"""
+ANE = """end=$(( $(date +%s) + {secs} )); n=0
+while [ "$(date +%s)" -lt "$end" ]; do {lock}sh -c {cmd} >/dev/null || exit 3; n=$((n + 1)); done
+echo ane_batches=$n"""
 
 
 def load_hosts():
@@ -118,7 +123,8 @@ def hosts_cmd(names):
 
 
 def probe_steps(host, meta, secs):
-    """Built-in steps: spin every P core, spin every E core, then an MLX matmul under the GPU lock."""
+    """Built-in steps: spin every P core, spin every E core, an MLX matmul under the GPU lock, then the
+    host's `ane_cmd` in a loop under the GPU lock (and `ane_lock`, when set)."""
     by = {c["label"]: c["cpus"] for c in meta["clusters"]}
     p = [c for lab, cs in by.items() if lab != "E" for c in cs]
     steps = [("P spin", SPIN.format(cpus=" ".join(map(str, p)), secs=secs), False)] if p and "E" in by else []
@@ -128,6 +134,9 @@ def probe_steps(host, meta, secs):
         steps.append(("CPU spin", SPIN.format(cpus=" ".join(map(str, p)), secs=secs), False))
     if host.get("mlx_python"):
         steps.append(("GPU matmul", MATMUL.format(py=host["mlx_python"], secs=secs + 5), True))
+    if host.get("ane_cmd"):
+        lock = f"flock -w 60 {shlex.quote(host['ane_lock'])} " if host.get("ane_lock") else ""
+        steps.append(("ANE", ANE.format(secs=secs, lock=lock, cmd=shlex.quote(host["ane_cmd"])), True))
     return steps
 
 
