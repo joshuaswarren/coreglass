@@ -131,7 +131,10 @@ def probe_steps(host, meta, secs):
     return steps
 
 
-def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record):
+def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record,
+            attach=None, log=lambda msg: print(msg, flush=True), cancel=None):
+    """Capture `name` while running marked steps. `attach(session)` lets a GUI show the stream;
+    `cancel` (a threading.Event) stops before the next step."""
     host = resolve(name)
     pf = preflight(host)
     problems = blockers(pf)
@@ -140,18 +143,26 @@ def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap
     stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
     record = record or f"captures/{host['name']}-{stamp}.jsonl"
     session = Session(host["ssh"], hz, record, port if serve else None).start()
+    if attach:
+        attach(session)
     if serve:
-        print(f"live: http://127.0.0.1:{port}/", flush=True)
+        log(f"live: http://127.0.0.1:{port}/")
     plan = [(lab, cmd, False) for lab, cmd in steps] + [(lab, cmd, True) for lab, cmd in gpu_steps]
     if probe or not plan:
         plan = probe_steps(host, session.meta, secs) + plan
     done = []
+    wait = (lambda s: cancel.wait(s)) if cancel else time.sleep
     try:
-        time.sleep(baseline)
+        log(f"baseline {baseline:g} s")
+        wait(baseline)
         for label, cmd, gpu in plan:
+            if cancel and cancel.is_set():
+                log("cancelled")
+                break
             if gpu and not host.get("gpu_lock"):
                 raise SystemExit(f"{host['name']}: GPU step '{label}' needs gpu_lock in the hosts file")
             script = f"flock -w 60 {shlex.quote(host['gpu_lock'])} bash -s <<'COREGLASS'\n{cmd}\nCOREGLASS" if gpu else cmd
+            log(f"{label} …")
             session.mark(label)
             t0, w0 = session.hub.t, time.time()
             p = ssh(host, "bash -s", script, timeout=3600)
@@ -159,16 +170,17 @@ def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap
             done.append({"label": label, "gpu": gpu, "cmd": cmd, "rc": p.returncode, "start_unix": w0,
                          "end_unix": time.time(), "t_start": t0, "t_end": session.hub.t,
                          "stdout_tail": p.stdout[-400:], "stderr_tail": p.stderr[-400:]})
-            print(f"{label}: rc={p.returncode} {p.stdout.strip()[-120:]}", flush=True)
-            time.sleep(gap)
-        time.sleep(baseline)
+            log(f"{label}: rc={p.returncode} {p.stdout.strip()[-120:]}")
+            wait(gap)
+        wait(baseline)
     finally:
         session.stop()
     manifest = {"schema": "coreglass/run/v1", "host": host, "preflight": pf, "forced_over": problems,
                 "capture": record, "samples": session.hub.count, "seconds": session.hub.t, "steps": done,
                 "coreglass_commit": _commit()}
     Path(record).with_suffix(".run.json").write_text(json.dumps(manifest, indent=1))
-    print(f"{record}: {session.hub.count} samples, {session.hub.t:.1f} s; manifest {Path(record).with_suffix('.run.json')}")
+    log(f"{record}: {session.hub.count} samples, {session.hub.t:.1f} s; manifest {Path(record).with_suffix('.run.json')}")
+    return record
 
 
 def _commit():

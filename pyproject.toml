@@ -16,4 +16,4 @@ build-backend = "setuptools.build_meta"
 packages = ["coreglass"]
 
 [tool.setuptools.package-data]
-coreglass = ["fonts/*"]
+coreglass = ["fonts/*", "fixtures/*.json", "icon.svg"]

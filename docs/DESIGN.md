@@ -33,7 +33,9 @@ A human opens one HTML file. An LLM reads one JSON summary.
 ```mermaid
 flowchart LR
   N[lab receipts] -->|coreglass ingest-lab| L[bundles/local/lab.json]
-  F[fixtures/*.json replay] --> M
+  F[coreglass/fixtures/*.json, keyword reference] --> M
+  G[coreglass app: window + local HTTP API] -->|drives| T
+  G -->|build| M
   T[target host: sampler.py over SSH] -->|coreglass live| D[live dashboard, SSE]
   T -->|coreglass live| C[captures/*.jsonl]
   C -->|ingest.capture| M
@@ -109,7 +111,7 @@ latencies. Per-core variation in a modeled heatmap appears only with `--demo`.
 
 ```sh
 python3 -m coreglass live m2max                   # dashboard at http://127.0.0.1:8777/
-python3 -m coreglass build fixtures/*.json captures/<file>.jsonl -o out/capture --png
+python3 -m coreglass build reference captures/<file>.jsonl -o out/capture --png
 ```
 
 `coreglass live` sends `sampler.py` over SSH (`python3 -u -`), so the target needs only Python 3 and
@@ -131,6 +133,26 @@ and accepts `POST /mark?label=…`, which writes a mark into the capture. The da
 First receipt: on an M2 Max, a pinned busy loop showed P busy 1.000 / E 0.016 and E 1.000 / P 0.005.
 An MLX fp16 matmul loop raised the GPU firmware IRQ rate from 4.1/s to 26.0/s and the heatpipe rail
 from 4.15 W to 57.02 W.
+
+## The app
+
+`coreglass` with no arguments runs `app.App`. It is a local standard-library HTTP server and one
+page of plain JavaScript (`apppage.py`), with no build step. The window opens through
+`omarchy-launch-webapp`, then `chromium --app`, then the default browser.
+`coreglass install` writes a `.desktop` entry and the icon, so the app shows in the launcher.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/state` | mode (idle, live, run, replay), target, capture, log tail |
+| `GET /api/hosts`, `/api/captures`, `/api/phases?name=` | target preflight, capture list, per-phase means |
+| `GET /live?embed=1` | the live canvas, fed by the same hub as `coreglass live` |
+| `POST /api/live`, `/api/run`, `/api/replay`, `/api/stop` | start or stop one session at a time |
+| `POST /api/build`, `/api/theme` | build frames for a capture; switch theme |
+
+Captures and built frames go to `$XDG_DATA_HOME/coreglass/{captures,out}`. The theme choice goes to
+`~/.config/coreglass/app.json`. `synthwave` is the default look. `omarchy` reads the active theme's
+`colors.toml` from `~/.local/state/omarchy/current/theme/` (or `~/.config/omarchy/current/theme/`)
+and maps it onto the same palette keys, so the frames follow the user's theme too.
 
 ## Hosts and remote runs
 

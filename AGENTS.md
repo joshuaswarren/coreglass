@@ -13,13 +13,15 @@ Python 3.11+, standard library only. Chrome or Chromium is needed only for `--pn
 
 | Goal | Command |
 |---|---|
+| Open the GUI app (window, keyboard driven) | `coreglass` or `coreglass app` (`--no-window --port N` for a browser) |
+| Add the app to the launcher | `coreglass install` |
 | Check every target (reachable, arch, load, GPU lock, MLX, driver stats) | `coreglass hosts` |
 | Watch a target live (dashboard at http://127.0.0.1:8777/) | `coreglass live <target>` |
 | Capture while running steps on a target | `coreglass run <target>` (built-in probe) or `--step 'LABEL=CMD'`, `--gpu-step 'LABEL=CMD'` |
 | Per-phase means of a run (acceptance check) | `coreglass phases captures/<file>.jsonl` (add `--json` for machines) |
 | Replay a capture in the dashboard | `coreglass live x --replay captures/<file>.jsonl --speed 4` |
 | Parse lab receipts | `coreglass ingest-lab --root <artifacts dir> -o bundles/local/lab.json` |
-| Render frames + summary | `coreglass build fixtures/apple-silicon-linux-2026-10-02.json captures/<file>.jsonl -o out/x --png` |
+| Render frames + summary | `coreglass build reference captures/<file>.jsonl -o out/x --png` (`reference` = bundled measurements) |
 | Same, safe to post publicly | add `--anonymize` |
 | Tests | `python3 -m unittest discover -s tests` |
 

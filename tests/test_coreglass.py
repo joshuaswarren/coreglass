@@ -4,9 +4,9 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from coreglass import ingest, model, remote, sampler, views
+from coreglass import build, ingest, model, remote, sampler, theme, views
 
-FIXTURE = Path(__file__).resolve().parents[1] / "fixtures/apple-silicon-linux-2026-10-02.json"
+FIXTURE = build.REFERENCE
 
 
 def write(tmp, name, obj):
@@ -162,6 +162,30 @@ class Render(unittest.TestCase):
             for _, svg in frames:
                 ET.fromstring(svg)
                 self.assertEqual(">DEMO</text>" in svg, demo)
+
+    def test_omarchy_theme_maps_colors_and_light_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "theme" / "colors.toml"
+            path.parent.mkdir()
+            path.write_text('mode = "light"\naccent = "#1e66f5"\nbackground = "#eff1f5"\nforeground = "#4c4f69"\n'
+                            'cyan = "#179299"\nmagenta = "#ea76cb"\nyellow = "#df8e1d"\n')
+            (Path(tmp) / "theme.name").write_text("catppuccin-latte")
+            saved, theme.THEME_FILES = theme.THEME_FILES, (path,)
+            try:
+                p = theme.get("omarchy")
+            finally:
+                theme.THEME_FILES = saved
+        self.assertEqual((p["name"], p["gpu"], p["ane"], p["cpu"]), ("omarchy:catppuccin-latte", "#179299", "#ea76cb", "#df8e1d"))
+        self.assertIn("color-scheme:light", theme.css_vars(p))
+        ET.fromstring(views.render_all(model.load([FIXTURE]), palette=p)[0][1])
+        views.use(theme.SYNTHWAVE)
+
+    def test_omarchy_falls_back_to_synthwave_without_a_theme(self):
+        saved, theme.THEME_FILES = theme.THEME_FILES, (Path("/nonexistent/colors.toml"),)
+        try:
+            self.assertEqual(theme.get("omarchy")["name"], "synthwave")
+        finally:
+            theme.THEME_FILES = saved
 
 
 if __name__ == "__main__":

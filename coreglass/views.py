@@ -10,17 +10,24 @@ import random
 import textwrap
 from pathlib import Path
 
+from . import theme
 from .model import findings, headlines
 
 W, H = 1600, 900
-BG, PANEL, EDGE, TEXT, DIM = "#05070b", "#0c1017", "#1c2433", "#eef2f8", "#8590a3"
-LANE = {"gpu": "#2de2ff", "ane": "#ff4fd8", "cpu": "#ffb02e", "queue": "#9b87ff",
-        "sync": "#ff5b6e", "mem": "#59f0a8"}
-PROV = {"measured": "#3ddc97", "replay": "#5aa9ff", "modeled": "#ffb02e", "demo": "#ff4f6d"}
 SANS = "Inter, 'SF Pro Display', 'Helvetica Neue', 'Liberation Sans', Arial, sans-serif"
 MONO = "'JetBrains Mono', 'SF Mono', 'DejaVu Sans Mono', monospace"
-CMAP = [(0.0, (10, 12, 24)), (0.2, (48, 14, 102)), (0.45, (150, 38, 129)),
-        (0.7, (240, 96, 52)), (0.88, (252, 190, 50)), (1.0, (252, 255, 164))]
+
+
+def use(p):
+    """Switch every frame color to palette `p` (theme.SYNTHWAVE or theme.omarchy())."""
+    global PAL, BG, PANEL, EDGE, TEXT, DIM, LANE, PROV, CMAP
+    PAL, BG, PANEL, EDGE, TEXT, DIM = p, p["bg"], p["panel"], p["edge"], p["text"], p["dim"]
+    LANE = {k: p[k] for k in ("gpu", "ane", "cpu", "queue", "sync", "mem")}
+    PROV = {k: p[k] for k in ("measured", "replay", "modeled", "demo")}
+    CMAP = [(a, theme._hex(c)) for a, c in p["cmap"]]
+
+
+use(theme.SYNTHWAVE)
 # Subset Inter + JetBrains Mono (OFL, coreglass/fonts/), embedded so SVG, PNG, and canvas exports match.
 FONT_CSS = "".join(
     f"@font-face{{font-family:'{fam}';font-weight:100 900;src:url(data:font/woff2;base64,"
@@ -32,10 +39,10 @@ def esc(s):
     return html.escape(str(s), quote=True)
 
 
-def t(x, y, s, size=20, fill=TEXT, w=400, anchor="start", mono=False, extra=""):
+def t(x, y, s, size=20, fill=None, w=400, anchor="start", mono=False, extra=""):
     fam = MONO if mono else SANS
     return (f'<text x="{x:.1f}" y="{y:.1f}" font-family="{esc(fam)}" font-size="{size}" '
-            f'font-weight="{w}" fill="{fill}" text-anchor="{anchor}" {extra}>{esc(s)}</text>')
+            f'font-weight="{w}" fill="{fill or TEXT}" text-anchor="{anchor}" {extra}>{esc(s)}</text>')
 
 
 def r(x, y, w, h, fill, rx=0, extra=""):
@@ -52,7 +59,7 @@ def cmap(v):
         if v <= b:
             k = (v - a) / (b - a)
             return "#%02x%02x%02x" % tuple(round(p + (q - p) * k) for p, q in zip(ca, cb))
-    return "#fcffa4"
+    return "#%02x%02x%02x" % CMAP[-1][1]
 
 
 def wrap(s, n):
@@ -72,6 +79,31 @@ def panel(x, y, w, h, title=None):
     return out
 
 
+def sun(fid, cx=1060, cy=190, rad=108):
+    """The striped 80s sun, setting behind the panels under the title."""
+    bars = "".join(r(cx - rad * 2, cy - rad * f, rad * 4, 3 + 7 * i, "#000") for i, f in enumerate((0.6, 0.42, 0.26, 0.12)))
+    return (f'<defs><linearGradient id="{fid}-sun" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{PAL["sun_top"]}"/>'
+            f'<stop offset="0.6" stop-color="{PAL["sun_mid"]}"/><stop offset="1" stop-color="{PAL["sun_low"]}"/></linearGradient>'
+            f'<radialGradient id="{fid}-halo"><stop offset="0.45" stop-color="{PAL["sun_mid"]}" stop-opacity="0.35"/>'
+            f'<stop offset="1" stop-color="{PAL["sun_mid"]}" stop-opacity="0"/></radialGradient>'
+            f'<mask id="{fid}-sunmask"><rect x="0" y="0" width="{W}" height="{cy}" fill="#fff"/>{bars}</mask>'
+            f'<clipPath id="{fid}-sky"><rect x="0" y="0" width="{W}" height="{cy}"/></clipPath></defs>'
+            f'<circle cx="{cx}" cy="{cy}" r="{rad * 1.9}" fill="url(#{fid}-halo)" clip-path="url(#{fid}-sky)"/>'
+            f'<circle cx="{cx}" cy="{cy}" r="{rad}" fill="url(#{fid}-sun)" mask="url(#{fid}-sunmask)"/>')
+
+
+def horizon(fid, y0=828, alpha=0.42):
+    """80s perspective grid along the bottom edge, behind the footer."""
+    vx, out = W / 2, ""
+    for i in range(-14, 15):
+        out += line(vx, y0, vx + i * 150, H, f"url(#{fid}-gridfade)", 1.2)
+    k = 1.0
+    while y0 + k < H:
+        out += line(0, y0 + k, W, y0 + k, f"url(#{fid}-gridfade)", 1.2)
+        k *= 1.55
+    return f'<g opacity="{alpha}">{out}</g>'
+
+
 def frame(fid, title, subtitle, body, b, provs, demo):
     host = b.get("host", {})
     pill = " · ".join(str(host[k]) for k in ("alias", "chip", "soc", "os", "kernel") if host.get(k))
@@ -84,16 +116,21 @@ def frame(fid, title, subtitle, body, b, provs, demo):
         c, w = chip(x, 858, p, PROV[p])
         foot += c
         x += w + 10
+    P = PAL
     return f'''<svg xmlns="http://www.w3.org/2000/svg" id="{fid}" class="frame" viewBox="0 0 {W} {H}" width="{W}" height="{H}">
 <defs><style>{FONT_CSS}</style>
-<radialGradient id="{fid}-g1" cx="12%" cy="0%" r="70%"><stop offset="0" stop-color="#1fb8ff" stop-opacity="0.20"/><stop offset="1" stop-color="#1fb8ff" stop-opacity="0"/></radialGradient>
-<radialGradient id="{fid}-g2" cx="95%" cy="100%" r="70%"><stop offset="0" stop-color="#ff3fd0" stop-opacity="0.16"/><stop offset="1" stop-color="#ff3fd0" stop-opacity="0"/></radialGradient>
-<pattern id="{fid}-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#ffffff" stroke-opacity="0.035"/></pattern>
+<radialGradient id="{fid}-g1" cx="8%" cy="0%" r="65%"><stop offset="0" stop-color="{P['glow1']}" stop-opacity="0.22"/><stop offset="1" stop-color="{P['glow1']}" stop-opacity="0"/></radialGradient>
+<radialGradient id="{fid}-g2" cx="92%" cy="0%" r="70%"><stop offset="0" stop-color="{P['glow2']}" stop-opacity="0.20"/><stop offset="1" stop-color="{P['glow2']}" stop-opacity="0"/></radialGradient>
+<radialGradient id="{fid}-g3" cx="50%" cy="100%" r="55%"><stop offset="0" stop-color="{P['sun_low']}" stop-opacity="0.22"/><stop offset="1" stop-color="{P['sun_low']}" stop-opacity="0"/></radialGradient>
+<linearGradient id="{fid}-gridfade" gradientUnits="userSpaceOnUse" x1="0" y1="828" x2="0" y2="{H}"><stop offset="0" stop-color="{P['grid']}" stop-opacity="0.15"/><stop offset="1" stop-color="{P['grid']}"/></linearGradient>
+<linearGradient id="{fid}-mark" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="{P['sun_top']}"/><stop offset="0.5" stop-color="{P['sun_mid']}"/><stop offset="1" stop-color="{P['glow1']}"/></linearGradient>
+<pattern id="{fid}-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#ffffff" stroke-opacity="0.03"/></pattern>
 <filter id="{fid}-glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-<linearGradient id="{fid}-bar" x1="0" x2="1"><stop offset="0" stop-color="#1b6bff"/><stop offset="1" stop-color="#2de2ff"/></linearGradient>
+<linearGradient id="{fid}-bar" x1="0" x2="1"><stop offset="0" stop-color="{P['queue']}"/><stop offset="1" stop-color="{P['gpu']}"/></linearGradient>
 </defs>
-{r(0, 0, W, H, BG)}{r(0, 0, W, H, f"url(#{fid}-g1)")}{r(0, 0, W, H, f"url(#{fid}-g2)")}{r(0, 0, W, H, f"url(#{fid}-grid)")}
-{t(60, 62, "CORE", 20, TEXT, 800, extra='letter-spacing="8"')}{t(152, 62, "GLASS", 20, LANE["gpu"], 800, extra='letter-spacing="8"')}
+{r(0, 0, W, H, BG)}{r(0, 0, W, H, f"url(#{fid}-g1)")}{r(0, 0, W, H, f"url(#{fid}-g2)")}{r(0, 0, W, H, f"url(#{fid}-g3)")}{r(0, 0, W, H, f"url(#{fid}-grid)")}
+{sun(fid)}{horizon(fid)}
+{t(60, 62, "COREGLASS", 21, f"url(#{fid}-mark)", 900, extra=f'letter-spacing="9" filter="url(#{fid}-glow)"')}
 {t(W - 60, 62, pill, 18, DIM, 500, "end", mono=True)}
 {t(60, 124, title, 52, TEXT, 800)}
 {t(60, 162, subtitle, 22, DIM, 400)}
@@ -565,7 +602,7 @@ def view_capture(b, demo):
     st = cap["stats"]
     rails = list(st["rails"])
     tiles = [("P cores · peak 1 s", st["p_busy"], lambda v: f"{100 * v:.0f}%", LANE["cpu"]),
-             ("E cores · peak 1 s", st["e_busy"], lambda v: f"{100 * v:.0f}%", "#ffd27a"),
+             ("E cores · peak 1 s", st["e_busy"], lambda v: f"{100 * v:.0f}%", PAL["e"]),
              ("GPU busy · peak 1 s", st["gpu_busy"], lambda v: f"{100 * v:.0f}%", LANE["gpu"])
              if st.get("gpu_busy") is not None else
              ("GPU fw events · peak", st["gpu_irq"], lambda v: f"{v:.0f}/s", LANE["gpu"])]
@@ -588,7 +625,7 @@ def view_capture(b, demo):
         body += t(770, 768 + i * 18, f"{p['label'].split(' · ')[0].replace(' Power', '')} {max(w for _, w in p['series']):.1f}",
                   12, pal[i], 700, "end", mono=True)
     for i, (lab, vals) in enumerate(cap["clocks"].items()):
-        c = "#ffd27a" if lab == "E" else pal[(i + 1) % 4]
+        c = PAL["e"] if lab == "E" else pal[(i + 1) % 4]
         body += polyline(834, 764, 520, 66, vals, c, cap["max_ghz"])
         body += t(1520, 768 + i * 18, f"{lab} max {max(vals):.2f}", 12, c, 700, "end", mono=True)
     return frame("capture", f"Live capture · {cap['host']}",
@@ -600,6 +637,7 @@ VIEWS = [("hero", view_hero), ("time", view_time), ("bandwidth", view_bandwidth)
          ("util", view_util), ("flow", view_flow), ("gaps", view_gaps)]
 
 
-def render_all(b, demo=False):
+def render_all(b, demo=False, palette=None):
+    use(palette or theme.SYNTHWAVE)
     frames = [(name, fn(b, demo)) for name, fn in VIEWS]
     return frames + ([("capture", view_capture(b, demo))] if b.get("capture") else [])

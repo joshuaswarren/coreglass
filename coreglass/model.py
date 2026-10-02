@@ -36,6 +36,7 @@ def load(parts):
                 merged[key] = value
     for key in LIST_KEYS:
         merged.setdefault(key, [])
+    merged.setdefault("host", {})
     _check_prov(merged)
     merged["digest"] = hashlib.sha256(json.dumps(merged, sort_keys=True).encode()).hexdigest()[:12]
     return merged

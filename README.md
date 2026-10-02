@@ -1,6 +1,7 @@
 # Coreglass
 
 Coreglass shows where local inference loses speed on Apple Silicon under Linux.
+It is a desktop app for Omarchy and other Linux desktops.
 It records live counters from the target laptops, runs marked workloads on them, and renders shareable frames.
 It also writes a ranked summary that an LLM can read.
 
@@ -14,10 +15,30 @@ Chrome or Chromium is optional and only makes PNG files.
 ```sh
 git clone https://github.com/joshuaswarren/coreglass ~/src/coreglass
 uv tool install ~/src/coreglass        # or: cd ~/src/coreglass && python3 -m coreglass …
+coreglass install                     # adds Coreglass to the app launcher (Super+Space on Omarchy)
 ```
 
 The viewer reaches each target by SSH alias. Targets need Python 3 only; nothing is installed on them.
 List your targets in `~/.config/coreglass/hosts.toml`. Start from [hosts.example.toml](hosts.example.toml).
+
+## The app
+
+Launch Coreglass from the app launcher, or run `coreglass` with no arguments.
+It opens in its own window and drives everything from the keyboard.
+
+![The Coreglass app replaying a capture from an M2 Max](docs/app.png)
+
+| Key | Action |
+|---|---|
+| `1` to `9` | pick a target |
+| `l` / `r` | watch it live / run the probe (P cores, E cores, GPU matmul) |
+| `m` / `f` / `esc` | mark the timeline / full screen / stop |
+| `↑` `↓` then `enter` | pick a capture and replay it |
+| `b` | build shareable frames from the capture |
+| `t` | switch between the synthwave look and your current Omarchy theme |
+
+Captures and frames live in `~/.local/share/coreglass/`.
+`coreglass app --no-window --port 8777` serves the app to a browser instead.
 
 ## Quick start
 
@@ -26,7 +47,7 @@ coreglass hosts                      # reachable? arch, model, load, GPU lock, M
 coreglass live m2max                 # live dashboard at http://127.0.0.1:8777/
 coreglass run m2max                  # capture + P-core, E-core, and MLX GPU probe steps, with marks
 coreglass phases captures/<capture>.jsonl                      # per-phase means of that run
-coreglass build fixtures/apple-silicon-linux-2026-10-02.json captures/<capture>.jsonl -o out/x --png
+coreglass build reference captures/<capture>.jsonl -o out/x --png   # reference = bundled measurements
 coreglass live x --replay captures/<capture>.jsonl --speed 4   # play a capture back
 ```
 

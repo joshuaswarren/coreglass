@@ -2,28 +2,22 @@
 
 import json
 
+from . import theme
 from .views import FONT_CSS, esc
 
 CSS = """
-:root{color-scheme:dark}
-*{box-sizing:border-box}
-body{margin:0;background:#020306;color:#eef2f8;font:15px/1.5 Inter,'Helvetica Neue','Liberation Sans',Arial,sans-serif}
-header{position:sticky;top:0;z-index:2;display:flex;gap:10px;align-items:center;padding:12px 24px;
-  background:#05070bcc;backdrop-filter:blur(10px);border-bottom:1px solid #1c2433}
-.mark{font-weight:800;letter-spacing:6px;margin-right:18px}.mark b{color:#2de2ff}
-button{background:#0c1017;color:#eef2f8;border:1px solid #1c2433;border-radius:8px;padding:7px 13px;font:inherit;cursor:pointer}
-button:hover{border-color:#2de2ff}button.on{background:#2de2ff;color:#05070b;border-color:#2de2ff;font-weight:700}
-.sp{flex:1}.hint{color:#8590a3;font-size:13px}
 main{padding:22px 24px;display:grid;justify-items:center}
-.frame{display:none;width:min(100%,calc((100vh - 90px)*16/9));height:auto;border-radius:14px;box-shadow:0 30px 80px #000c}
+.frame{display:none;width:min(100%,calc((100vh - 90px)*16/9));height:auto;border-radius:14px;
+  box-shadow:0 30px 80px #000c,0 0 0 1px var(--edge),0 0 60px color-mix(in srgb,var(--sun-mid) 18%,transparent)}
 .frame.on{display:block}
 body.wall .frame{display:block;margin-bottom:22px}
 .flow[stroke-dasharray]{animation:dash 1.4s linear infinite}
 @keyframes dash{to{stroke-dashoffset:-36}}
 section{max-width:1600px;width:100%;margin-top:28px}
-table{width:100%;border-collapse:collapse;font-size:14px}
-td,th{padding:7px 10px;border-bottom:1px solid #1c2433;text-align:left;vertical-align:top}
-th{color:#8590a3;font-weight:600}td.f{font:700 15px 'JetBrains Mono','DejaVu Sans Mono',monospace;color:#2de2ff}
+h2{font-weight:800;letter-spacing:.02em}
+table{width:100%;border-collapse:collapse;font-size:14px;background:color-mix(in srgb,var(--panel) 80%,transparent);border-radius:12px;overflow:hidden}
+td,th{padding:8px 12px;border-bottom:1px solid var(--edge);text-align:left;vertical-align:top}
+th{color:var(--dim);font-weight:600}td.f{font:700 15px 'JetBrains Mono','DejaVu Sans Mono',monospace;color:var(--gpu)}
 """
 
 JS = """
@@ -48,7 +42,8 @@ const start=frames.findIndex(f=>'#'+f.id===location.hash);show(start<0?0:start);
 """
 
 
-def render(frames, summary, md):
+def render(frames, summary, md, palette=None):
+    css = theme.chrome_css(palette or theme.SYNTHWAVE) + CSS
     tabs = "".join(f'<button data-i="{i}">{esc(name)}</button>' for i, (name, _) in enumerate(frames))
     rows = "".join(
         f"<tr><td class=f>{f['factor']:.2f}×</td><td>{esc(f['kind'])}</td><td>{esc(f['component'])}</td>"
@@ -59,11 +54,11 @@ def render(frames, summary, md):
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Coreglass · {esc(summary['title'])}</title>
 <meta name="description" content="Coreglass inference studio. Machine-readable summary: script#coreglass-summary (JSON) and pre#coreglass-summary-md.">
-<style>{FONT_CSS}{CSS}</style></head>
+<style>{FONT_CSS}{css}</style></head>
 <body>
-<header><span class="mark">CORE<b>GLASS</b></span>{tabs}<span class="sp"></span>
-<span class="hint">← → views · p png · s svg · w wall</span>
-<button onclick="exportPng()">PNG 2×</button><button onclick="exportSvg()">SVG</button>
+<header class="bar"><span class="mark">Coreglass</span>{tabs}<span class="sp"></span>
+<span class="hint">←→ views · w wall</span>
+<button onclick="exportPng()">PNG 2×<kbd>p</kbd></button><button onclick="exportSvg()">SVG<kbd>s</kbd></button>
 <button onclick="copySummary()">Copy LLM summary</button></header>
 <main>{"".join(svg for _, svg in frames)}
 <section><h2>Levers, largest factor first</h2>

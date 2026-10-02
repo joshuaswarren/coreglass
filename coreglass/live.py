@@ -54,46 +54,69 @@ class Hub:
             self.clients.remove(q)
 
 
-def handler(hub, title):
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *args):
+class LiveHandler(BaseHTTPRequestHandler):
+    """Dashboard routes: `/` page, `/events` SSE, `POST /mark`. Subclasses set `hub()` and `title()`."""
+
+    def hub(self):
+        raise NotImplementedError
+
+    def title(self):
+        return "coreglass"
+
+    def log_message(self, *args):
+        pass
+
+    def send_body(self, body, ctype, code=200):
+        data = body if isinstance(body, bytes) else body.encode()
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def serve_events(self):
+        hub = self.hub()
+        if hub is None:
+            return self.send_error(404, "no active session")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        q = hub.subscribe()
+        try:
+            while True:
+                self.wfile.write(f"data: {q.get()}\n\n".encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
             pass
+        finally:
+            hub.unsubscribe(q)
 
-        def do_GET(self):
-            path = urlparse(self.path).path
-            if path == "/":
-                body = livepage.render(title).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-            elif path == "/events":
-                self.send_response(200)
-                self.send_header("Content-Type", "text/event-stream")
-                self.send_header("Cache-Control", "no-cache")
-                self.end_headers()
-                q = hub.subscribe()
-                try:
-                    while True:
-                        self.wfile.write(f"data: {q.get()}\n\n".encode())
-                        self.wfile.flush()
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
-                finally:
-                    hub.unsubscribe(q)
-            else:
-                self.send_error(404)
+    def post_mark(self):
+        hub = self.hub()
+        if hub is not None:
+            label = parse_qs(urlparse(self.path).query).get("label", ["mark"])[0][:80]
+            hub.publish(json.dumps({"mark": label, "t": hub.t}))
+        self.send_response(204)
+        self.end_headers()
 
-        def do_POST(self):
-            if urlparse(self.path).path != "/mark":
-                return self.send_error(404)
-            hub.publish(json.dumps({"mark": parse_qs(urlparse(self.path).query).get("label", ["mark"])[0][:80],
-                                    "t": hub.t}))
-            self.send_response(204)
-            self.end_headers()
+    def do_GET(self):
+        path = urlparse(self.path).path
+        if path == "/":
+            self.send_body(livepage.render(self.title()), "text/html; charset=utf-8")
+        elif path == "/events":
+            self.serve_events()
+        else:
+            self.send_error(404)
 
-    return Handler
+    def do_POST(self):
+        if urlparse(self.path).path == "/mark":
+            return self.post_mark()
+        self.send_error(404)
+
+
+def handler(hub, title):
+    return type("Handler", (LiveHandler,), {"hub": lambda self: hub, "title": lambda self: title})
 
 
 class Session:

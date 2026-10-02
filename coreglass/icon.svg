@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a0a3d"/><stop offset="0.62" stop-color="#3a0d5c"/><stop offset="0.62" stop-color="#0b0420"/><stop offset="1" stop-color="#0b0420"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd319"/><stop offset="0.55" stop-color="#ff2a6d"/><stop offset="1" stop-color="#9d2bff"/>
+    </linearGradient>
+    <linearGradient id="grid" gradientUnits="userSpaceOnUse" x1="0" y1="159" x2="0" y2="240">
+      <stop offset="0" stop-color="#ff2a6d" stop-opacity="0.25"/><stop offset="1" stop-color="#00e5ff"/>
+    </linearGradient>
+    <clipPath id="tile"><rect x="8" y="8" width="240" height="240" rx="56"/></clipPath>
+    <mask id="stripes">
+      <rect width="256" height="256" fill="#fff"/>
+      <rect x="0" y="118" width="256" height="5" fill="#000"/>
+      <rect x="0" y="131" width="256" height="7" fill="#000"/>
+      <rect x="0" y="146" width="256" height="9" fill="#000"/>
+    </mask>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect width="256" height="256" fill="url(#sky)"/>
+    <circle cx="128" cy="112" r="66" fill="url(#sun)" mask="url(#stripes)" filter="url(#glow)"/>
+    <rect x="0" y="159" width="256" height="97" fill="#0b0420"/>
+    <g stroke="url(#grid)" stroke-width="2.4" fill="none">
+      <path d="M128 159 L-80 256 M128 159 L-10 256 M128 159 L55 256 M128 159 L128 256 M128 159 L201 256 M128 159 L266 256 M128 159 L336 256"/>
+      <path d="M0 162 H256 M0 168 H256 M0 177 H256 M0 191 H256 M0 212 H256 M0 244 H256"/>
+    </g>
+  </g>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="none" stroke="#00e5ff" stroke-opacity="0.55" stroke-width="3"/>
+</svg>

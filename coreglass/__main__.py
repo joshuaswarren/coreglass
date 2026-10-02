@@ -1,47 +1,18 @@
-"""coreglass build | ingest-lab | live   (python -m coreglass --help)"""
+"""coreglass app | build | ingest-lab | live | hosts | run | phases   (python -m coreglass --help)"""
 
 import argparse
 import json
-import shutil
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import ingest, live, model, page, remote, views
-
-CHROMES = ("google-chrome", "chromium", "chromium-browser", "google-chrome-stable")
-
-
-def shoot(svg, png, scale):
-    chrome = next((shutil.which(c) for c in CHROMES if shutil.which(c)), None)
-    if not chrome:
-        raise SystemExit("--png needs Chrome or Chromium on PATH")
-    subprocess.run([chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
-                    f"--force-device-scale-factor={scale}", f"--window-size={views.W},{views.H}",
-                    f"--screenshot={png}", svg.resolve().as_uri()],
-                   check=True, capture_output=True, timeout=60)
+from . import app, build as builder, ingest, live, remote
 
 
 def build(args):
-    bundle = model.load([ingest.capture(p) if p.endswith(".jsonl") else p for p in args.bundles])
-    if args.anonymize:
-        bundle = model.anonymize(bundle)
-    summary = model.summary(bundle)
-    md = model.markdown(summary)
-    frames = views.render_all(bundle, demo=args.demo)
-    out = Path(args.out)
-    (out / "frames").mkdir(parents=True, exist_ok=True)
-    (out / "index.html").write_text(page.render(frames, summary, md))
-    (out / "summary.json").write_text(json.dumps(summary, indent=1))
-    (out / "summary.md").write_text(md)
-    for name, svg in frames:
-        path = out / "frames" / f"{name}.svg"
-        path.write_text(svg)
-        if args.png:
-            shoot(path, out / "frames" / f"{name}.png", args.scale)
-    print(f"{out / 'index.html'}  ({len(frames)} frames, {len(summary['findings'])} findings, bundle {bundle['digest']})")
-    print(md if args.print else f"{out / 'summary.md'}")
+    r = builder.build(args.bundles, args.out, args.demo, args.png, args.scale, args.anonymize, args.theme)
+    print(f"{r['out']}/index.html  ({len(r['frames'])} frames, {r['findings']} findings, bundle {r['digest']})")
+    print(r["markdown"] if args.print else f"{r['out']}/summary.md")
 
 
 def ingest_lab(args):
@@ -57,11 +28,22 @@ def ingest_lab(args):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="coreglass", description="Apple-Silicon inference studio for Linux")
-    sub = ap.add_subparsers(required=True)
+    ap = argparse.ArgumentParser(prog="coreglass", description="Apple-Silicon inference studio for Linux. "
+                                 "Run with no command to open the app.")
+    sub = ap.add_subparsers()
+    ap.set_defaults(fn=lambda a: app.run())
+
+    a = sub.add_parser("app", help="open the Coreglass app window (default)")
+    a.add_argument("--port", type=int, default=8777)
+    a.add_argument("--no-window", action="store_true", help="serve only; open http://127.0.0.1:<port>/ yourself")
+    a.set_defaults(fn=lambda a: app.run(a.port, not a.no_window))
+
+    ins = sub.add_parser("install", help="add Coreglass to the app launcher (desktop entry + icon)")
+    ins.set_defaults(fn=lambda a: app.install_desktop())
 
     b = sub.add_parser("build", help="render bundles to out/index.html, frames/*.svg|png, summary.{json,md}")
-    b.add_argument("bundles", nargs="+", help="coreglass/v1 JSON bundles and *.jsonl live captures, merged left to right")
+    b.add_argument("bundles", nargs="+", help="`reference`, coreglass/v1 JSON bundles, and *.jsonl captures, merged in order")
+    b.add_argument("--theme", choices=("synthwave", "omarchy"), default="synthwave")
     b.add_argument("-o", "--out", default="out")
     b.add_argument("--demo", action="store_true", help="add synthetic per-core texture; every frame is stamped DEMO")
     b.add_argument("--png", action="store_true", help="also screenshot each frame with headless Chrome")
