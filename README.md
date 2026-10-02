@@ -79,6 +79,8 @@ contract for the GPU and ANE drivers.
 
 ## Comparison frames
 
+![oMLX on an M1 under Omarchy: upstream mlx-lm vs mlx-lm with Omarchy's Vulkan patches, same model and prompt](docs/compare.png)
+
 ```sh
 coreglass compare captures/<run>.jsonl --png --anonymize                 # every engine in one run
 coreglass compare 'captures/<a>.jsonl#LLM=before' 'captures/<b>.jsonl#LLM=after' --png   # one step across runs
