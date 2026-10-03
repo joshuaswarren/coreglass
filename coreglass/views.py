@@ -155,7 +155,8 @@ def heatmap(x, y, w, h, groups, cols, fn, demo):
     noise = _noise(7, sum(g[2] for g in groups), cols) if demo else None
     out, yy, gi = "", y, 0
     for label, color, rows, key in groups:
-        out += t(x - 16, yy + rows * rh / 2 + 7, label, 18, color, 700, "end")
+        size = min(18, round((rows + 0.6) * rh * 0.9))  # one-row groups (GPU, ANE) sit close together
+        out += t(x - 16, yy + rows * rh / 2 + size * 0.38, label, size, color, 700, "end")
         for row in range(rows):
             vals = []
             for col in range(cols):
@@ -199,13 +200,17 @@ def capture_heat(b, x, y, w, h):
     hx, hw, lane = x + 90, w - 90, 26 if cap["marks"] else 0
     out = heatmap(hx, y + lane, hw, h - 46 - lane, [tuple(g) for g in groups], cols,
                   lambda k, row, col: by[k][row][col] if col < len(by[k][row]) else 0.0, False)
-    free_x = hx
-    for m in cap["marks"]:
-        mx = hx + m["t"] / max(cap["seconds"], 1e-9) * hw
+    marks, secs = cap["marks"], max(cap["seconds"], 1e-9)
+    for i, m in enumerate(marks):
+        mx = hx + m["t"] / secs * hw
         out += line(mx, y, mx, y + h - 46, TEXT, 2)
-        if mx + 6 >= free_x:
-            out += t(mx + 6, y + 14, m["label"], 14, TEXT, 700, mono=True)
-            free_x = mx + 6 + len(m["label"]) * 8.6 + 10
+        if m["label"] == "idle":  # step ends; the gap between steps is idle by definition
+            continue
+        end = next((hx + n["t"] / secs * hw for n in marks[i + 1:]), hx + hw)
+        room = int((end - mx - 10) / 8.6)
+        if room >= 3:
+            label = m["label"] if len(m["label"]) <= room else m["label"][:room - 1] + "…"
+            out += t(mx + 6, y + 14, label, 14, TEXT, 700, mono=True)
     out += t(hx, y + h - 14, f"{cap['seconds']:g} s · {cap['n']} samples @ {cap['hz']:g} Hz · {cap['host']}", 15, DIM, mono=True)
     gpu = next((r for r in rows if r["group"] == "GPU"), None)
     if gpu and "p95_per_s" in gpu:
@@ -602,24 +607,27 @@ def view_capture(b, demo):
     cap, body = b["capture"], ""
     st = cap["stats"]
     rails = list(st["rails"])
-    tiles = [("P cores · peak 1 s", st["p_busy"], lambda v: f"{100 * v:.0f}%", LANE["cpu"]),
-             ("E cores · peak 1 s", st["e_busy"], lambda v: f"{100 * v:.0f}%", PAL["e"]),
-             ("GPU busy · peak 1 s", st["gpu_busy"], lambda v: f"{100 * v:.0f}%", LANE["gpu"])
+    tiles = [("P cores · peak 1 s", st["p_busy"], lambda v: f"{100 * v:.0f}%", LANE["cpu"], None),
+             ("E cores · peak 1 s", st["e_busy"], lambda v: f"{100 * v:.0f}%", PAL["e"], None),
+             ("GPU busy · peak 1 s", st["gpu_busy"], lambda v: f"{100 * v:.0f}%", LANE["gpu"], None)
              if st.get("gpu_busy") is not None else
-             ("GPU fw events · peak", st["gpu_irq"], lambda v: f"{v:.0f}/s", LANE["gpu"]),
-             ("ANE busy · peak 1 s", st.get("ane_busy"), lambda v: f"{100 * v:.0f}%", LANE["ane"])]
-    tiles += [(f"{r.replace(' Power', '')} · peak", st["rails"][r], lambda v: f"{v:.1f} W", LANE["mem"]) for r in rails[:1]]
-    tiles.append(("Hottest sensor", st["temp_max"], lambda v: f"{v:.1f}°C", LANE["sync"]))
+             ("GPU fw events · peak", st["gpu_irq"], lambda v: f"{v:.0f}/s", LANE["gpu"], None),
+             ("ANE busy · peak 1 s", st.get("ane_busy"), lambda v: f"{100 * v:.0f}%", LANE["ane"], None)]
+    tiles += [(f"{r.replace(' Power', '')} · peak", st["rails"][r], lambda v: f"{v:.1f} W", LANE["mem"], None)
+              for r in rails[:1]]
+    tiles.append(("Hottest sensor", st["temp_max"], lambda v: f"{v:.1f}°C", LANE["sync"], None))
     llm = next((r for r in (cap.get("run") or {}).get("results", []) if r.get("decode_tok_s")), None)
     if llm:
-        tiles[-1] = (f"{llm['label']} decode tok/s", llm["decode_tok_s"], lambda v: f"{v:.0f}", LANE["sync"])
-    for i, (label, v, fmt, c) in enumerate(tiles[:6]):
+        tiles[-1] = ("Decode tok/s", llm["decode_tok_s"], lambda v: f"{v:.0f}", LANE["sync"], llm["label"])
+    for i, (label, v, fmt, c, sub) in enumerate(tiles[:6]):
         x = 60 + i * 250
         body += panel(x, 190, 232, 140) + r(x + 14, 190, 204, 3, c if v is not None else EDGE)
-        body += t(x + 18, 220, label, 15, DIM, 600)
+        body += t(x + 18, 220, label if len(label) <= 24 else label[:23] + "…", 15, DIM, 600)
         why = "driver exports no ane_stats" if label.startswith("ANE") else "no source on this host"
         body += (t(x + 18, 290, fmt(v), 50, c, 800, extra='filter="url(#capture-glow)"') if v is not None
                  else t(x + 18, 290, "n/a", 50, EDGE, 800) + t(x + 18, 316, why, 13, DIM))
+        if sub and v is not None:
+            body += t(x + 18, 316, sub if len(sub) <= 28 else sub[:27] + "…", 13, DIM)
     body += panel(60, 350, 1480, 350, "Per-core occupancy (measured)")
     body += capture_heat(b, 80, 398, 1440, 296)
     body += panel(60, 716, 730, 124, "Power rails (W)") + panel(810, 716, 730, 124, "Cluster clocks (GHz)")
