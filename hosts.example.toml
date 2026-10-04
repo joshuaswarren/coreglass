@@ -15,6 +15,9 @@
 # ane_cmd:       optional shell command that runs one batch of ANE work; the probe loops it for the ANE step,
 #                under gpu_lock and, when set, ane_lock.
 # ane_lock:      optional flock file your ANE tools already use.
+# before_run:    optional command run before a capture, e.g. to stop a resident server that holds gpu_lock. The
+#                held lock then does not block the host; the run checks the lock again after this command.
+# after_run:     optional command run after a capture, always, even when the run fails or refuses.
 
 [m2max]
 ssh = "m2max-linux"

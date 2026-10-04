@@ -103,12 +103,14 @@ def preflight(host):
     return {"reachable": True, **json.loads(p.stdout)}
 
 
-def blockers(pf):
+def blockers(pf, host=None):
+    """Reasons not to start a run. A held GPU lock does not block a host whose `before_run` frees it (a resident
+    server that must be stopped for benchmarks); run_cmd checks the lock again after `before_run`."""
     out = []
     if not pf["reachable"]:
         out.append(f"unreachable: {pf['error']}")
     else:
-        if pf["gpu_lock_held"]:
+        if pf["gpu_lock_held"] and not (host or {}).get("before_run"):
             out.append("GPU lock held by another job")
         if pf["load1"] >= 0.5:
             out.append(f"not quiet: load1 {pf['load1']:.2f} >= 0.5")
@@ -125,7 +127,9 @@ def hosts_cmd(names):
     for name in names or list(hosts):
         h = resolve(name)
         pf = preflight(h)
-        state = "; ".join(blockers(pf)) or "ready"
+        state = "; ".join(blockers(pf, h)) or "ready"
+        if pf.get("gpu_lock_held") and h.get("before_run") and state == "ready":
+            state = "ready (before_run frees the GPU lock)"
         if pf["reachable"]:
             print(f"{h['name']:<8} {h['ssh']:<14} {pf['arch']:<8} {pf['model'][:44]:<44} load1 {pf['load1']:.2f}  "
                   f"mlx {'yes' if pf['mlx_python'] else 'no':<3}  stats {','.join(pf['stats']) or '-':<19}  {state}")
@@ -177,8 +181,27 @@ def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap
     """Capture `name` while running marked steps. `attach(session)` lets a GUI show the stream;
     `cancel` (a threading.Event) stops before the next step."""
     host = resolve(name)
+    if host.get("before_run"):
+        pf = preflight(host)
+        problems = blockers(pf, host)
+        if problems and (not force or not pf["reachable"]):
+            raise SystemExit(f"{host['name']}: refusing to run: {'; '.join(problems)} (use --force to override)")
+        log(f"before_run: {host['before_run']}")
+        p = ssh(host, host["before_run"], timeout=180)
+        if p.returncode:
+            raise SystemExit(f"{host['name']}: before_run failed ({p.returncode}): {p.stderr.strip()[-200:]}")
+    try:
+        return _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log,
+                    cancel)
+    finally:
+        if host.get("after_run"):
+            p = ssh(host, host["after_run"], timeout=300)
+            log(f"after_run: {host['after_run']} -> rc {p.returncode}")
+
+
+def _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log, cancel):
     pf = preflight(host)
-    problems = blockers(pf)
+    problems = blockers(pf)  # after before_run: a lock still held now is another job's
     if problems and (not force or not pf["reachable"]):
         raise SystemExit(f"{host['name']}: refusing to run: {'; '.join(problems)} (use --force to override)")
     stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"

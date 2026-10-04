@@ -125,6 +125,9 @@ class Remote(unittest.TestCase):
         self.assertEqual(remote.blockers(quiet), [])
         self.assertEqual(len(remote.blockers({**quiet, "gpu_lock_held": True, "load1": 2.0})), 2)
         self.assertTrue(remote.blockers({"reachable": False, "error": "timeout"})[0].startswith("unreachable"))
+        held = {**quiet, "gpu_lock_held": True}
+        self.assertEqual(remote.blockers(held, {"before_run": "systemctl stop srv"}), [])
+        self.assertEqual(remote.blockers(held, {}), ["GPU lock held by another job"])
 
     def test_probe_steps_follow_clusters_and_mlx(self):
         meta = {"clusters": [{"label": "E", "cpus": [0, 1]}, {"label": "P0", "cpus": [2, 3]}]}
