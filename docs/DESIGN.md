@@ -204,7 +204,7 @@ busy_patterns = ["my-benchmark"]           # optional, processes that mean "busy
 - `coreglass run <host>` refuses when the preflight finds a held GPU lock, load1 ≥ 0.5, or a busy process,
   unless `--force`. A host with `before_run` (for example, stop a resident server that holds the GPU lock) runs
   that command first and preflights again; `after_run` then runs in all cases, also on refusal or failure.
-  unless `--force`. It then starts a capture, waits an idle baseline, and runs each step over SSH with a
+  The run then starts a capture, waits an idle baseline, and runs each step over SSH with a
   mark before and after. `--gpu-step` wraps the command in `flock -w 60 <gpu_lock>`. With no steps it
   runs the built-in probe: spin every P core, spin every E core (cluster map from the sampler), an
   MLX 4096×4096 fp16 matmul loop when `mlx_python` is set, a real LLM request (`llmstep.py`: warmup, then
