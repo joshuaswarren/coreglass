@@ -134,7 +134,8 @@ class App:
             h = remote.resolve(n)
             pf = remote.preflight(h)
             return {"name": n, "ssh": h["ssh"], "chip": h.get("chip", ""), "mlx": bool(h.get("mlx_python")),
-                    "ane": bool(h.get("ane_cmd")), "yields": bool(h.get("before_run")), "preflight": pf,
+                    "ane": bool(h.get("ane_cmd")), "yields": h.get("yield_service") if pf.get("yield_active") else None,
+                    "preflight": pf,
                     "blockers": remote.blockers(pf, h)}
         with ThreadPoolExecutor(max_workers=8) as ex:
             return {"file": str(path), "hosts": list(ex.map(one, names))}

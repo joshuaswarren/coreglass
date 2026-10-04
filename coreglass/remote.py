@@ -13,8 +13,8 @@ from .live import Session
 HOSTS_FILE = Path.home() / ".config/coreglass/hosts.toml"
 
 PREFLIGHT = r"""
-import fcntl, glob, json, os, platform, sys
-lock, mlx, patterns = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+import fcntl, glob, json, os, platform, subprocess, sys
+lock, mlx, patterns, unit = sys.argv[1], sys.argv[2], json.loads(sys.argv[3]), sys.argv[4]
 def held(p):
     if not p or not os.path.exists(p):
         return False
@@ -42,7 +42,8 @@ print(json.dumps({"hostname": platform.node(), "arch": platform.machine(), "mode
                   "kernel": platform.release(), "python": platform.python_version(),
                   "load1": os.getloadavg()[0], "gpu_lock_held": held(lock), "busy": busy[:3],
                   "mlx_python": bool(mlx) and os.access(mlx, os.X_OK), "stats": [k for k, v in stats.items() if v],
-                  "accel": accel}))
+                  "accel": accel,
+                  "yield_active": bool(unit) and subprocess.run(["systemctl", "is-active", "--quiet", unit]).returncode == 0}))
 """
 
 SPIN = "for c in {cpus}; do timeout {secs} taskset -c $c sh -c 'while :; do :; done' coreglass-spin & done; wait || true"
@@ -93,7 +94,7 @@ def ssh(host, cmd, stdin="", timeout=120):
 
 def preflight(host):
     args = " ".join(shlex.quote(host.get(k, "")) for k in ("gpu_lock", "mlx_python"))
-    args += " " + shlex.quote(json.dumps(host.get("busy_patterns", [])))
+    args += " " + shlex.quote(json.dumps(host.get("busy_patterns", []))) + " " + shlex.quote(host.get("yield_service", ""))
     try:
         p = ssh(host, f"python3 - {args}", PREFLIGHT, timeout=30)
     except subprocess.TimeoutExpired:
@@ -104,13 +105,13 @@ def preflight(host):
 
 
 def blockers(pf, host=None):
-    """Reasons not to start a run. A held GPU lock does not block a host whose `before_run` frees it (a resident
-    server that must be stopped for benchmarks); run_cmd checks the lock again after `before_run`."""
+    """Reasons not to start a run. A held GPU lock does not block while the host's `yield_service` is active: that
+    resident server owns the lock, and the run stops it first. An inactive unit means someone else holds the lock."""
     out = []
     if not pf["reachable"]:
         out.append(f"unreachable: {pf['error']}")
     else:
-        if pf["gpu_lock_held"] and not (host or {}).get("before_run"):
+        if pf["gpu_lock_held"] and not ((host or {}).get("yield_service") and pf.get("yield_active")):
             out.append("GPU lock held by another job")
         if pf["load1"] >= 0.5:
             out.append(f"not quiet: load1 {pf['load1']:.2f} >= 0.5")
@@ -128,8 +129,8 @@ def hosts_cmd(names):
         h = resolve(name)
         pf = preflight(h)
         state = "; ".join(blockers(pf, h)) or "ready"
-        if pf.get("gpu_lock_held") and h.get("before_run") and state == "ready":
-            state = "ready (before_run frees the GPU lock)"
+        if pf.get("gpu_lock_held") and pf.get("yield_active") and state == "ready":
+            state = f"ready (run pauses {h['yield_service']})"
         if pf["reachable"]:
             print(f"{h['name']:<8} {h['ssh']:<14} {pf['arch']:<8} {pf['model'][:44]:<44} load1 {pf['load1']:.2f}  "
                   f"mlx {'yes' if pf['mlx_python'] else 'no':<3}  stats {','.join(pf['stats']) or '-':<19}  {state}")
@@ -181,27 +182,31 @@ def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap
     """Capture `name` while running marked steps. `attach(session)` lets a GUI show the stream;
     `cancel` (a threading.Event) stops before the next step."""
     host = resolve(name)
-    if host.get("before_run"):
+    unit = host.get("yield_service")
+    stopped = False
+    if unit:
         pf = preflight(host)
         problems = blockers(pf, host)
         if problems and (not force or not pf["reachable"]):
             raise SystemExit(f"{host['name']}: refusing to run: {'; '.join(problems)} (use --force to override)")
-        log(f"before_run: {host['before_run']}")
-        p = ssh(host, host["before_run"], timeout=180)
-        if p.returncode:
-            raise SystemExit(f"{host['name']}: before_run failed ({p.returncode}): {p.stderr.strip()[-200:]}")
+        if pf.get("yield_active"):
+            log(f"stopping {unit} for the run")
+            p = ssh(host, f"sudo -n systemctl stop {shlex.quote(unit)}", timeout=180)
+            if p.returncode:
+                raise SystemExit(f"{host['name']}: could not stop {unit}: {p.stderr.strip()[-200:]}")
+            stopped = True
     try:
         return _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log,
                     cancel)
     finally:
-        if host.get("after_run"):
-            p = ssh(host, host["after_run"], timeout=300)
-            log(f"after_run: {host['after_run']} -> rc {p.returncode}")
+        if stopped:  # restore only what this run changed
+            p = ssh(host, f"sudo -n systemctl start {shlex.quote(unit)}", timeout=300)
+            log(f"started {unit} again: rc {p.returncode}")
 
 
 def _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log, cancel):
     pf = preflight(host)
-    problems = blockers(pf)  # after before_run: a lock still held now is another job's
+    problems = blockers(pf)  # after a yield: a lock still held now is another job's
     if problems and (not force or not pf["reachable"]):
         raise SystemExit(f"{host['name']}: refusing to run: {'; '.join(problems)} (use --force to override)")
     stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
