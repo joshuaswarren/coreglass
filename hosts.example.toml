@@ -15,9 +15,9 @@
 # ane_cmd:       optional shell command that runs one batch of ANE work; the probe loops it for the ANE step,
 #                under gpu_lock and, when set, ane_lock.
 # ane_lock:      optional flock file your ANE tools already use.
-# yield_service: optional systemd unit of a resident server that holds gpu_lock. While the unit is active its lock
-#                does not block the host: the run stops it (sudo -n systemctl stop) and starts it again afterward,
-#                also on failure. If the unit is inactive, a held lock belongs to someone else and blocks the run.
+# gpu_turn:      optional FIFO wrapper that holds gpu_lock while its command runs, called as `<gpu_turn> -- CMD`
+#                (e.g. "~/bin/gpu-turn -m 6"). The run takes one turn for all its steps, so a held lock queues
+#                instead of blocking; steps stop if the wrapper's time limit ends the turn.
 
 [m2max]
 ssh = "m2max-linux"

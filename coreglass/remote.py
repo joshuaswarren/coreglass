@@ -1,8 +1,10 @@
 """Target hosts: preflight checks and scripted capture runs (`coreglass hosts`, `coreglass run`)."""
 
 import json
+import queue
 import shlex
 import subprocess
+import threading
 import time
 import tomllib
 from datetime import datetime, timezone
@@ -13,8 +15,8 @@ from .live import Session
 HOSTS_FILE = Path.home() / ".config/coreglass/hosts.toml"
 
 PREFLIGHT = r"""
-import fcntl, glob, json, os, platform, subprocess, sys
-lock, mlx, patterns, unit = sys.argv[1], sys.argv[2], json.loads(sys.argv[3]), sys.argv[4]
+import fcntl, glob, json, os, platform, sys
+lock, mlx, patterns = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
 def held(p):
     if not p or not os.path.exists(p):
         return False
@@ -42,8 +44,7 @@ print(json.dumps({"hostname": platform.node(), "arch": platform.machine(), "mode
                   "kernel": platform.release(), "python": platform.python_version(),
                   "load1": os.getloadavg()[0], "gpu_lock_held": held(lock), "busy": busy[:3],
                   "mlx_python": bool(mlx) and os.access(mlx, os.X_OK), "stats": [k for k, v in stats.items() if v],
-                  "accel": accel,
-                  "yield_active": bool(unit) and subprocess.run(["systemctl", "is-active", "--quiet", unit]).returncode == 0}))
+                  "accel": accel}))
 """
 
 SPIN = "for c in {cpus}; do timeout {secs} taskset -c $c sh -c 'while :; do :; done' coreglass-spin & done; wait || true"
@@ -94,7 +95,7 @@ def ssh(host, cmd, stdin="", timeout=120):
 
 def preflight(host):
     args = " ".join(shlex.quote(host.get(k, "")) for k in ("gpu_lock", "mlx_python"))
-    args += " " + shlex.quote(json.dumps(host.get("busy_patterns", []))) + " " + shlex.quote(host.get("yield_service", ""))
+    args += " " + shlex.quote(json.dumps(host.get("busy_patterns", [])))
     try:
         p = ssh(host, f"python3 - {args}", PREFLIGHT, timeout=30)
     except subprocess.TimeoutExpired:
@@ -105,13 +106,12 @@ def preflight(host):
 
 
 def blockers(pf, host=None):
-    """Reasons not to start a run. A held GPU lock does not block while the host's `yield_service` is active: that
-    resident server owns the lock, and the run stops it first. An inactive unit means someone else holds the lock."""
+    """Reasons not to start a run. On a host with `gpu_turn`, a held GPU lock does not block: the run queues for it."""
     out = []
     if not pf["reachable"]:
         out.append(f"unreachable: {pf['error']}")
     else:
-        if pf["gpu_lock_held"] and not ((host or {}).get("yield_service") and pf.get("yield_active")):
+        if pf["gpu_lock_held"] and not (host or {}).get("gpu_turn"):
             out.append("GPU lock held by another job")
         if pf["load1"] >= 0.5:
             out.append(f"not quiet: load1 {pf['load1']:.2f} >= 0.5")
@@ -129,8 +129,8 @@ def hosts_cmd(names):
         h = resolve(name)
         pf = preflight(h)
         state = "; ".join(blockers(pf, h)) or "ready"
-        if pf.get("gpu_lock_held") and pf.get("yield_active") and state == "ready":
-            state = f"ready (run pauses {h['yield_service']})"
+        if pf.get("gpu_lock_held") and state == "ready":
+            state = "ready (queues for a GPU turn)"
         if pf["reachable"]:
             print(f"{h['name']:<8} {h['ssh']:<14} {pf['arch']:<8} {pf['model'][:44]:<44} load1 {pf['load1']:.2f}  "
                   f"mlx {'yes' if pf['mlx_python'] else 'no':<3}  stats {','.join(pf['stats']) or '-':<19}  {state}")
@@ -190,38 +190,71 @@ def wait_ready(host, seconds, log, poll=60):
         time.sleep(min(poll, max(0.0, deadline - time.time())))
 
 
+TURN = "coreglass-turn"
+SETTLE = 120  # seconds inside a turn for load from the previous holder to decay
+
+
+def take_turn(host, seconds, log):
+    """Queue on the host's FIFO GPU wrapper (`gpu_turn`), which holds `gpu_lock` while its command runs. Our command
+    prints a marker and then reads stdin, so the turn lasts until `release`. Returns the ssh process once the turn
+    starts, or None when it did not start within `seconds`."""
+    remote = f"echo $$; exec {host['gpu_turn']} -- sh -c 'echo {TURN}; exec cat >/dev/null'"
+    p = subprocess.Popen(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host["ssh"], remote],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    lines = queue.Queue()
+    threading.Thread(target=lambda: ([lines.put(ln.strip()) for ln in p.stdout], lines.put(None)), daemon=True).start()
+    try:
+        p.ticket = lines.get(timeout=30)
+        log(f"queued for a GPU turn: {host['gpu_turn']}")
+        if p.ticket and lines.get(timeout=max(seconds, 15)) == TURN:
+            log("GPU turn started")
+            return p
+    except queue.Empty:
+        pass
+    release(host, p)
+    return None
+
+
+def release(host, turn):
+    """End a turn: EOF ends its `cat`, which frees the lock. A ticket still waiting in the queue is killed instead."""
+    turn.stdin.close()
+    try:
+        turn.wait(10)
+    except subprocess.TimeoutExpired:
+        if (getattr(turn, "ticket", None) or "").isdigit():
+            ssh(host, f"kill {turn.ticket}", timeout=30)
+        try:
+            turn.wait(30)
+        except subprocess.TimeoutExpired:
+            turn.kill()
+
+
 def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record,
             attach=None, log=lambda msg: print(msg, flush=True), cancel=None, wait=0):
-    """Capture `name` while running marked steps. `attach(session)` lets a GUI show the stream;
-    `cancel` (a threading.Event) stops before the next step; `wait` seconds lets a busy host become ready first."""
+    """Capture `name` while running marked steps. `attach(session)` lets a GUI show the stream; `cancel` (a
+    threading.Event) stops before the next step. `wait` seconds lets a busy host become ready first; on a host with
+    `gpu_turn` it bounds the queue wait, and the whole run happens inside one turn."""
     host = resolve(name)
-    if wait and not force:
-        wait_ready(host, wait, log)
-    unit = host.get("yield_service")
-    stopped = False
-    if unit:
-        pf = preflight(host)
-        problems = blockers(pf, host)
-        if problems and (not force or not pf["reachable"]):
-            raise SystemExit(f"{host['name']}: refusing to run: {'; '.join(problems)} (use --force to override)")
-        if pf.get("yield_active"):
-            log(f"stopping {unit} for the run")
-            p = ssh(host, f"sudo -n systemctl stop {shlex.quote(unit)}", timeout=180)
-            if p.returncode:
-                raise SystemExit(f"{host['name']}: could not stop {unit}: {p.stderr.strip()[-200:]}")
-            stopped = True
+    turn = None
+    if host.get("gpu_turn") and not force:
+        turn = take_turn(host, wait, log)
+        if not turn:
+            raise SystemExit(f"{host['name']}: no GPU turn within {max(wait, 15):g} s")
+        wait = SETTLE
     try:
+        if wait and not force:
+            wait_ready(host, wait, log, poll=10 if turn else 60)
         return _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log,
-                    cancel)
+                    cancel, turn)
     finally:
-        if stopped:  # restore only what this run changed
-            p = ssh(host, f"sudo -n systemctl start {shlex.quote(unit)}", timeout=300)
-            log(f"started {unit} again: rc {p.returncode}")
+        if turn:
+            release(host, turn)
 
 
-def _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log, cancel):
+def _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log, cancel,
+         turn=None):
     pf = preflight(host)
-    problems = blockers(pf)  # after a yield: a lock still held now is another job's
+    problems = blockers(pf, host)
     if problems and (not force or not pf["reachable"]):
         raise SystemExit(f"{host['name']}: refusing to run: {'; '.join(problems)} (use --force to override)")
     stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
@@ -245,7 +278,11 @@ def _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, s
                 break
             if gpu and not host.get("gpu_lock"):
                 raise SystemExit(f"{host['name']}: GPU step '{label}' needs gpu_lock in the hosts file")
-            script = f"flock -w 60 {shlex.quote(host['gpu_lock'])} bash -s <<'COREGLASS'\n{cmd}\nCOREGLASS" if gpu else cmd
+            if turn and turn.poll() is not None:
+                log(f"GPU turn ended before '{label}'; stopping")
+                break
+            locked = gpu and not turn  # inside a turn the wrapper already holds gpu_lock
+            script = f"flock -w 60 {shlex.quote(host['gpu_lock'])} bash -s <<'COREGLASS'\n{cmd}\nCOREGLASS" if locked else cmd
             log(f"{label} …")
             session.mark(label)
             t0, w0 = session.hub.t, time.time()

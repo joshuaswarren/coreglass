@@ -103,7 +103,7 @@ class App:
         self.capture = Path(record).name
         self._thread(lambda: remote.run_cmd(name, [], [], True, 10, None, False, False, 8, 4, 10, record,
                                             attach=lambda s: setattr(self, "session", s), log=self.say,
-                                            cancel=self.cancel))
+                                            cancel=self.cancel, wait=600))
 
     def start_replay(self, capture):
         self._begin("replay", Path(capture).stem)
@@ -134,7 +134,7 @@ class App:
             h = remote.resolve(n)
             pf = remote.preflight(h)
             return {"name": n, "ssh": h["ssh"], "chip": h.get("chip", ""), "mlx": bool(h.get("mlx_python")),
-                    "ane": bool(h.get("ane_cmd")), "yields": h.get("yield_service") if pf.get("yield_active") else None,
+                    "ane": bool(h.get("ane_cmd")), "turn": bool(h.get("gpu_turn")),
                     "preflight": pf,
                     "blockers": remote.blockers(pf, h)}
         with ThreadPoolExecutor(max_workers=8) as ex:

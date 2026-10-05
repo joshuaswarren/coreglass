@@ -203,11 +203,11 @@ busy_patterns = ["my-benchmark"]           # optional, processes that mean "busy
   `mlx_python` exists, and which driver stats files (`agx_stats`, `ane_stats`) are readable.
 - `coreglass run <host>` refuses when the preflight finds a held GPU lock, load1 ≥ 0.5, or a busy process,
   unless `--force`. `--wait TIME` polls that preflight every 60 s and starts as soon as no blocker remains; at the
-  deadline the run checks once more and refuses. A host's `yield_service` waives the lock check only while
-  that unit is active, because the unit then owns the lock: the run stops it, preflights again, and starts it
-  again only if this run stopped it.
+  deadline the run checks once more and refuses. On a host with `gpu_turn`, a held lock does not block: the run
+  takes one turn from that FIFO wrapper (`<gpu_turn> -- CMD`) for all of its steps, waits up to 120 s inside it
+  for the previous holder's load to decay, runs GPU steps without a second `flock`, and stops if the turn ends.
   The run then starts a capture, waits an idle baseline, and runs each step over SSH with a
-  mark before and after. `--gpu-step` wraps the command in `flock -w 60 <gpu_lock>`. With no steps it
+  mark before and after. Outside a turn, `--gpu-step` wraps the command in `flock -w 60 <gpu_lock>`. With no steps it
   runs the built-in probe: spin every P core, spin every E core (cluster map from the sampler), an
   MLX 4096×4096 fp16 matmul loop when `mlx_python` is set, a real LLM request (`llmstep.py`: warmup, then
   `llm_prompt_tokens` prompt and `llm_gen_tokens` generated tokens) when `llm_model` is also set, and an ANE

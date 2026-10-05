@@ -120,7 +120,7 @@ function renderHosts(){$('#hosts').innerHTML=hosts.map((h,i)=>{const p=h.preflig
   <div class="hm">${esc(p.reachable?p.model.replace(/^Apple /,''):h.ssh)}</div>
   ${p.reachable?`<div class="hx">${esc(p.arch)} · load ${p.load1.toFixed(2)} · GPU ${p.stats.includes('agx_stats')?'stats':'irq'} · MLX ${p.mlx_python?'✓':'–'}</div>
   <div class="hx">ANE ${p.stats.includes('ane_stats')?'stats ✓':(p.accel||[]).some(d=>d.startsWith('ane'))?'driver, no stats':'–'} · ANE probe ${h.ane?'✓':'–'}</div>`:''}
-  ${busy?`<div class="why">${esc(h.blockers[0])}</div>`:h.yields&&p.gpu_lock_held?`<div class="hx">GPU held by ${esc(h.yields)}; Run pauses it</div>`:''}
+  ${busy?`<div class="why">${esc(h.blockers[0])}</div>`:h.turn&&p.gpu_lock_held?`<div class="hx">GPU in use; Run waits for its turn</div>`:''}
   <div class="hb"><button onclick="event.stopPropagation();hi=${i};live()" ${p.reachable?'':'disabled'}>Live<kbd>l</kbd></button>
   <button class="primary" onclick="event.stopPropagation();hi=${i};run()" ${busy||!p.reachable?'disabled':''}>Run probe<kbd>r</kbd></button></div></div>`}).join('')}
 async function loadCaps(){caps=await api('/api/captures');renderCaps()}

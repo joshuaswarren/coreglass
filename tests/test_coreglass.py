@@ -126,9 +126,7 @@ class Remote(unittest.TestCase):
         self.assertEqual(len(remote.blockers({**quiet, "gpu_lock_held": True, "load1": 2.0})), 2)
         self.assertTrue(remote.blockers({"reachable": False, "error": "timeout"})[0].startswith("unreachable"))
         held = {**quiet, "gpu_lock_held": True}
-        unit = {"yield_service": "srv.service"}
-        self.assertEqual(remote.blockers({**held, "yield_active": True}, unit), [])
-        self.assertEqual(remote.blockers({**held, "yield_active": False}, unit), ["GPU lock held by another job"])
+        self.assertEqual(remote.blockers(held, {"gpu_turn": "gpu-turn -m 6"}), [])  # the run queues instead
         self.assertEqual(remote.blockers(held, {}), ["GPU lock held by another job"])
 
     def test_wait_ready_polls_until_quiet_and_gives_up_at_deadline(self):
