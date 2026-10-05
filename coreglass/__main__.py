@@ -150,7 +150,13 @@ def main(argv=None):
     lr = lsub.add_parser("run", help="measure every target and stack, then the macOS reference")
     lr.add_argument("--only", action="append", default=[], metavar="HOST", help="hosts.toml name (repeatable)")
     lr.add_argument("--no-reference", action="store_true", help="skip the macOS reference")
-    lr.set_defaults(fn=lambda a: ledger.run_cmd(a.only, not a.no_reference))
+    lr.add_argument("--stack", action="append", default=[], metavar="LABEL", help="only this stack (repeatable)")
+    lr.set_defaults(fn=lambda a: ledger.run_cmd(a.only, not a.no_reference, a.stack))
+    la = lsub.add_parser("add", help="merge a row from finished ledger captures that a run never merged")
+    la.add_argument("host", help="hosts.toml name")
+    la.add_argument("stack", help="stack label from ledger.toml")
+    la.add_argument("captures", nargs="+", help="captures/ledger-*.jsonl (with their .run.json)")
+    la.set_defaults(fn=lambda a: ledger.add_cmd(a.host, a.stack, a.captures))
     lsub.add_parser("render", help="rewrite docs/LEDGER.md from docs/ledger.json").set_defaults(
         fn=lambda a: ledger.render_cmd())
 

@@ -293,24 +293,29 @@ def save(rows, cfg):
     (DOCS / "LEDGER.md").write_text(render(rows, cfg))
 
 
-def run_cmd(only, reference, log=lambda msg: print(msg, flush=True)):
-    """Every target and the reference in parallel (each Mac queues on its own GPU), stacks in order per target.
-    Each finished row is merged into the ledger at once, so a late or failed target never loses the others."""
-    cfg = load_config()
-    date = f"{datetime.now(timezone.utc):%Y-%m-%d}"
+def merger(cfg, date):
     lock = threading.Lock()
 
     def merge(row):
-        """Threads share `lock`; a second `coreglass ledger run` (a late Mac) shares the flock on ledger.lock."""
+        """Threads share `lock`; a second `coreglass ledger` process shares the flock on ledger.lock."""
         with lock, open(DOCS / "ledger.lock", "w") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             key = (date, row["chip"], row["stack"])
             save([r for r in load_rows() if (r["date"], r["chip"], r["stack"]) != key] + [{"date": date, **row}], cfg)
+    return merge
+
+
+def run_cmd(only, reference, stacks=(), log=lambda msg: print(msg, flush=True)):
+    """Every target and the reference in parallel (each Mac queues on its own GPU), stacks in order per target.
+    Each finished row is merged into the ledger at once, so a late or failed target never loses the others."""
+    cfg = load_config()
+    date = f"{datetime.now(timezone.utc):%Y-%m-%d}"
+    merge = merger(cfg, date)
 
     def target_job(target):
         say = lambda msg: log(f"[{target['host']}] {msg}")
         for stack in cfg["stacks"]:
-            if row := measure_linux(cfg, target, stack, say):
+            if (not stacks or stack["label"] in stacks) and (row := measure_linux(cfg, target, stack, say)):
                 merge(row)
 
     jobs = [lambda t=t: target_job(t) for t in cfg["targets"] if not only or t["host"] in only]
@@ -321,6 +326,24 @@ def run_cmd(only, reference, log=lambda msg: print(msg, flush=True)):
             f.result()
     for line in summary(load_rows(), cfg, date):
         print(line, flush=True)
+
+
+def add_cmd(host_name, stack_label, captures):
+    """Merge a row built from finished ledger captures (when a run measured but never merged), dated by capture."""
+    cfg = load_config()
+    stack = next(s for s in cfg["stacks"] if s["label"] == stack_label)
+    target = next(t for t in cfg["targets"] if t["host"] == host_name)
+    host, base = remote.resolve(host_name), target.get("base", cfg["base"])
+    info = stack_info(host, f"{base}/{stack['venv']}/bin/python", f"{base}/{stack['driver']}")
+    if not info:
+        raise SystemExit(f"{host_name} {stack_label}: stack missing")
+    reps = [capture_metrics(c) for c in captures]
+    stamp = re.search(r"(\d{8})T\d{6}Z", Path(captures[0]).name)[1]
+    merger(cfg, f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:]}")(
+        {"chip": host.get("chip", host["name"]), "os": "linux", "stack": stack_label, **info, "reps": len(reps),
+         "kernel_warnings": sum(r[1] for r in reps), "failed_steps": sorted({b for r in reps for b in r[2]}),
+         "metrics": summarize([r[0] for r in reps])})
+    print(DOCS / "LEDGER.md")
 
 
 def render_cmd():
