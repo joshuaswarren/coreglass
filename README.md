@@ -79,6 +79,15 @@ and patch set you point it at. `coreglass phases` and the app then show the engi
 contract for the GPU and ANE drivers. [docs/RESULTS.md](docs/RESULTS.md) has measured results: an M1, an M1 Max,
 and an M2 Max on one software stack, four LLM engines each.
 
+## Daily ledger
+
+`coreglass ledger run` runs one frozen suite on every target and on an optional macOS reference.
+The suite covers two models, mlx-lm and oMLX, GPU matmul, and ANE, with three reps each.
+It then rewrites [docs/LEDGER.md](docs/LEDGER.md), one row per Mac, stack, and day.
+Each cell shows the change against the previous day and against the best day.
+Any regression over 1% is listed with the commit range that could explain it.
+Copy [ledger.example.toml](ledger.example.toml) to `~/.config/coreglass/ledger.toml` to define the suite.
+
 ## Comparison frames
 
 ![oMLX on an M1 under Omarchy: upstream mlx-lm vs mlx-lm with Omarchy's Vulkan patches, same model and prompt](docs/compare.png)

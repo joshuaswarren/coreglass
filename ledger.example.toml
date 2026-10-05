@@ -1,0 +1,48 @@
+# Coreglass daily ledger suite. Copy to ~/.config/coreglass/ledger.toml and edit.
+# `coreglass ledger run` measures every target × stack (reps runs each, one GPU turn per run), then the macOS
+# reference, and rewrites docs/LEDGER.md. Keep the suite frozen: a change in models, engines, or token counts
+# breaks the day-over-day comparison.
+
+reps = 3
+turn_minutes = 8          # gpu_turn ticket per run, on hosts that use gpu_turn
+wait_seconds = 10800      # longest wait for a busy host per run
+base = "/home/me/.local/share/coreglass"   # where venvs, drivers, and models live on each Linux target
+
+[[models]]                # dir is relative to base on every host
+label = "Qwen3.8-2B 4-bit"
+dir = "models/qwen3_5-4bit"
+
+[[models]]
+label = "Qwen3-4B 4-bit"
+dir = "models/qwen3-4b-4bit"
+
+[[engines]]
+label = "mlx-lm"
+engine = "in-process"
+overlay = true            # use the stack's mlx-lm overlay (PYTHONPATH) when it has one
+
+[[engines]]
+label = "oMLX"
+engine = "omlx"
+overlay = true
+
+[[stacks]]                # venv and driver are relative to base; driver holds honeykrisp_icd.aarch64.json
+label = "release"
+venv = "venv"
+driver = "vulkan-release"
+overlay = "mlx-lm-series/lib/python3.14/site-packages"
+
+[[stacks]]
+label = "main"
+venv = "venv-main"
+driver = "vulkan-main"
+overlay = "mlx-lm-series-main/lib/python3.14/site-packages"
+
+[[targets]]               # hosts.toml names; chips come from each host's `chip`
+host = "m2max"
+
+[reference]               # optional: upstream MLX on macOS, measured over SSH without the sampler
+ssh = "me@mac"
+chip = "M2 Max"
+base = "/Users/me/.local/share/coreglass"
+venv = "venv"

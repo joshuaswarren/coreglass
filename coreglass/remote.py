@@ -151,10 +151,10 @@ def probe_steps(host, meta, secs):
         steps.append(("CPU spin", SPIN.format(cpus=" ".join(map(str, p)), secs=secs), False))
     if host.get("mlx_python"):
         steps.append(("GPU matmul", MATMUL.format(py=host["mlx_python"], secs=secs + 5), True))
-    if host.get("llm_model"):
-        model = host["llm_model"]
+    if host.get("llm_model") or host.get("llm_runs"):
         sizes = {"prompt": int(host.get("llm_prompt_tokens", 512)), "gen": int(host.get("llm_gen_tokens", 128))}
         for run in host.get("llm_runs") or [{"label": "LLM"}]:
+            model = run.get("model") or host["llm_model"]
             py, engine = run.get("python") or host["mlx_python"], run.get("engine", "in-process")
             env = "".join(f"{k}={shlex.quote(str(v))} " for k, v in run.get("env", {}).items())
             if engine == "in-process":

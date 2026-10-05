@@ -4,7 +4,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from coreglass import build, compare, ingest, model, remote, sampler, theme, views
+from coreglass import build, compare, ingest, ledger, model, remote, sampler, theme, views
 
 FIXTURE = build.REFERENCE
 
@@ -198,6 +198,22 @@ class Remote(unittest.TestCase):
         self.assertEqual(compare.headline(vs, list(rows.values()))[1], "+25%")
         vs[1]["decode_tok_s"] = 40.8
         self.assertEqual(compare.headline(vs, compare.deltas(vs))[1], "≈")
+
+    def test_ledger_flags_regressions_by_direction_and_tracks_the_best_day(self):
+        cfg = {"models": [{"label": "M"}], "engines": [{"label": "E"}]}
+        dec, ttft = "M · E · decode tok/s", "M · E · TTFT ms"
+
+        def row(date, d, t):
+            return {"date": date, "chip": "C", "stack": "s", "wheel": "0+a", "driver": "x", "kernel_id": "k",
+                    "os": "linux", "metrics": {dec: {"median": d}, ttft: {"median": t}}}
+        rows = [row("2026-10-01", 100.0, 400.0), row("2026-10-02", 90.0, 300.0), row("2026-10-03", 89.5, 304.0)]
+        last = {r["date"]: (cells, regs) for r, _, cells, regs in ledger.compare(rows, cfg)}
+        cells, regs = last["2026-10-02"]
+        self.assertAlmostEqual(cells[ttft][1], 25.0)  # TTFT 400 -> 300 ms is an improvement
+        self.assertEqual([n for n, _ in regs], [dec])  # decode 100 -> 90 is a 10% regression
+        cells, regs = last["2026-10-03"]
+        self.assertAlmostEqual(cells[dec][2], -10.5)  # against the best day (100), not yesterday
+        self.assertEqual([n for n, _ in regs], [ttft])  # -0.6% decode is under the flag; +1.3% TTFT is over
 
 
 class Render(unittest.TestCase):

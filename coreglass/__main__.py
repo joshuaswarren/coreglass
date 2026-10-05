@@ -3,10 +3,11 @@
 import argparse
 import json
 import sys
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import app, build as builder, compare, ingest, live, remote
+from . import app, build as builder, compare, ingest, ledger, live, remote
 
 
 def build(args):
@@ -34,6 +35,17 @@ def duration(text):
         return float(text[:-1]) * scale if scale else float(text)
     except ValueError:
         raise argparse.ArgumentTypeError(f"not a duration: {text!r} (use 600, 45m, or 3h)") from None
+
+
+def setting(text):
+    """KEY=VALUE with VALUE read as TOML when it parses (numbers, lists, inline tables), else as a string."""
+    key, sep, raw = text.partition("=")
+    if not sep:
+        raise argparse.ArgumentTypeError(f"not KEY=VALUE: {text!r}")
+    try:
+        return key, tomllib.loads(f"v = {raw}")["v"]
+    except tomllib.TOMLDecodeError:
+        return key, raw
 
 
 def main(argv=None):
@@ -119,18 +131,28 @@ def main(argv=None):
     rn.add_argument("--wait", type=duration, default=0, metavar="TIME",
                     help="wait up to TIME (e.g. 600, 45m, 3h) for a busy host to become ready, then run")
     rn.add_argument("--record", help="capture path (default captures/<host>-<UTC>.jsonl)")
-    rn.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
-                    help="override one hosts.toml key for this run, e.g. llm_prompt_tokens=8192")
+    rn.add_argument("--set", action="append", default=[], type=setting, metavar="KEY=VALUE",
+                    help="override one hosts.toml key for this run; VALUE is TOML when it parses as TOML "
+                         "(e.g. llm_prompt_tokens=8192, env={VK_DRIVER_FILES=\"/x.json\"}), else a plain string")
     rn.set_defaults(fn=lambda a: remote.run_cmd(
         a.host, [s.split("=", 1) for s in a.step], [s.split("=", 1) for s in a.gpu_step], a.probe, a.hz, a.port,
-        not a.headless, a.force, a.baseline, a.gap, a.seconds, a.record, wait=a.wait,
-        overrides=dict(s.split("=", 1) for s in a.set)))
+        not a.headless, a.force, a.baseline, a.gap, a.seconds, a.record, wait=a.wait, overrides=dict(a.set)))
 
     ph = sub.add_parser("phases", help="per-phase means of a capture (idle baseline + each run step): CPU, GPU, "
                                        "engine busy, power; the producer acceptance check")
     ph.add_argument("capture", help="captures/<file>.jsonl (uses <file>.run.json for step windows when present)")
     ph.add_argument("--json", action="store_true")
     ph.set_defaults(fn=lambda a: remote.phases_cmd(a.capture, a.json))
+
+    lg = sub.add_parser("ledger", help="daily performance ledger: run the frozen suite (ledger.toml) on every "
+                                       "target and update docs/LEDGER.md")
+    lsub = lg.add_subparsers(required=True)
+    lr = lsub.add_parser("run", help="measure every target and stack, then the macOS reference")
+    lr.add_argument("--only", action="append", default=[], metavar="HOST", help="hosts.toml name (repeatable)")
+    lr.add_argument("--no-reference", action="store_true", help="skip the macOS reference")
+    lr.set_defaults(fn=lambda a: ledger.run_cmd(a.only, not a.no_reference))
+    lsub.add_parser("render", help="rewrite docs/LEDGER.md from docs/ledger.json").set_defaults(
+        fn=lambda a: ledger.render_cmd())
 
     args = ap.parse_args(argv)
     args.fn(args)
