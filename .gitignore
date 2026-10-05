@@ -5,3 +5,4 @@ out/
 bundles/local/
 captures/
 build/
+docs/ledger.lock

@@ -6,6 +6,7 @@ Vulkan driver + optional mlx-lm overlay), targets (hosts.toml names), and an opt
 SSH. Each rep on a Linux target is one `coreglass run` (one GPU turn): GPU matmul, every model × engine, and ANE.
 """
 
+import fcntl
 import hashlib
 import json
 import re
@@ -300,7 +301,9 @@ def run_cmd(only, reference, log=lambda msg: print(msg, flush=True)):
     lock = threading.Lock()
 
     def merge(row):
-        with lock:
+        """Threads share `lock`; a second `coreglass ledger run` (a late Mac) shares the flock on ledger.lock."""
+        with lock, open(DOCS / "ledger.lock", "w") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
             key = (date, row["chip"], row["stack"])
             save([r for r in load_rows() if (r["date"], r["chip"], r["stack"]) != key] + [{"date": date, **row}], cfg)
 
