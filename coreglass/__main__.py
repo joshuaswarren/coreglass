@@ -119,9 +119,12 @@ def main(argv=None):
     rn.add_argument("--wait", type=duration, default=0, metavar="TIME",
                     help="wait up to TIME (e.g. 600, 45m, 3h) for a busy host to become ready, then run")
     rn.add_argument("--record", help="capture path (default captures/<host>-<UTC>.jsonl)")
+    rn.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                    help="override one hosts.toml key for this run, e.g. llm_prompt_tokens=8192")
     rn.set_defaults(fn=lambda a: remote.run_cmd(
         a.host, [s.split("=", 1) for s in a.step], [s.split("=", 1) for s in a.gpu_step], a.probe, a.hz, a.port,
-        not a.headless, a.force, a.baseline, a.gap, a.seconds, a.record, wait=a.wait))
+        not a.headless, a.force, a.baseline, a.gap, a.seconds, a.record, wait=a.wait,
+        overrides=dict(s.split("=", 1) for s in a.set)))
 
     ph = sub.add_parser("phases", help="per-phase means of a capture (idle baseline + each run step): CPU, GPU, "
                                        "engine busy, power; the producer acceptance check")

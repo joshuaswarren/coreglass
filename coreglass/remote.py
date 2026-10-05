@@ -232,11 +232,11 @@ def release(host, turn):
 
 
 def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record,
-            attach=None, log=lambda msg: print(msg, flush=True), cancel=None, wait=0):
+            attach=None, log=lambda msg: print(msg, flush=True), cancel=None, wait=0, overrides=None):
     """Capture `name` while running marked steps. `attach(session)` lets a GUI show the stream; `cancel` (a
     threading.Event) stops before the next step. `wait` seconds lets a busy host become ready first; on a host with
-    `gpu_turn` it bounds the queue wait, and the whole run happens inside one turn."""
-    host = resolve(name)
+    `gpu_turn` it bounds the queue wait, and the whole run happens inside one turn. `overrides` replace host keys."""
+    host = {**resolve(name), **(overrides or {})}
     turn = None
     if host.get("gpu_turn") and not force:
         if wait:  # a rebooting host cannot queue yet
