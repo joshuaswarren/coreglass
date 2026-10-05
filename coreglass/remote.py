@@ -177,11 +177,12 @@ def kernel_log(host, since):
     return [ln for ln in p.stdout.splitlines() if "UFW BLOCK" not in ln][-20:]
 
 
-def wait_ready(host, seconds, log, poll=60):
-    """Poll the preflight until the host has no blockers or `seconds` pass. The run then checks again itself."""
+def wait_ready(host, seconds, log, poll=60, only=lambda problem: True):
+    """Poll the preflight until the host has no blockers (those `only` selects) or `seconds` pass. The run then
+    checks again itself."""
     deadline, last = time.time() + seconds, None
     while time.time() < deadline:
-        problems = blockers(preflight(host), host)
+        problems = [p for p in blockers(preflight(host), host) if only(p)]
         if not problems:
             return
         if problems != last:
@@ -205,7 +206,8 @@ def take_turn(host, seconds, log):
     threading.Thread(target=lambda: ([lines.put(ln.strip()) for ln in p.stdout], lines.put(None)), daemon=True).start()
     try:
         p.ticket = lines.get(timeout=30)
-        log(f"queued for a GPU turn: {host['gpu_turn']}")
+        if p.ticket:
+            log(f"queued for a GPU turn: {host['gpu_turn']}")
         if p.ticket and lines.get(timeout=max(seconds, 15)) == TURN:
             log("GPU turn started")
             return p
@@ -237,6 +239,8 @@ def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap
     host = resolve(name)
     turn = None
     if host.get("gpu_turn") and not force:
+        if wait:  # a rebooting host cannot queue yet
+            wait_ready(host, wait, log, only=lambda problem: problem.startswith("unreachable"))
         turn = take_turn(host, wait, log)
         if not turn:
             raise SystemExit(f"{host['name']}: no GPU turn within {max(wait, 15):g} s")
@@ -283,6 +287,7 @@ def _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, s
                 break
             locked = gpu and not turn  # inside a turn the wrapper already holds gpu_lock
             script = f"flock -w 60 {shlex.quote(host['gpu_lock'])} bash -s <<'COREGLASS'\n{cmd}\nCOREGLASS" if locked else cmd
+            script = "".join(f"export {k}={shlex.quote(str(v))}\n" for k, v in host.get("env", {}).items()) + script
             log(f"{label} …")
             session.mark(label)
             t0, w0 = session.hub.t, time.time()

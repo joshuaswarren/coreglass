@@ -18,6 +18,8 @@
 # gpu_turn:      optional FIFO wrapper that holds gpu_lock while its command runs, called as `<gpu_turn> -- CMD`
 #                (e.g. "~/bin/gpu-turn -m 6"). The run takes one turn for all its steps, so a held lock queues
 #                instead of blocking; steps stop if the wrapper's time limit ends the turn.
+# env:           optional environment for every step, e.g. VK_DRIVER_FILES to pin the Vulkan driver MLX loads,
+#                so results do not depend on what else is installed on the target.
 
 [m2max]
 ssh = "m2max-linux"

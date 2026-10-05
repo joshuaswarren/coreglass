@@ -206,7 +206,8 @@ busy_patterns = ["my-benchmark"]           # optional, processes that mean "busy
   deadline the run checks once more and refuses. On a host with `gpu_turn`, a held lock does not block: the run
   takes one turn from that FIFO wrapper (`<gpu_turn> -- CMD`) for all of its steps, waits up to 120 s inside it
   for the previous holder's load to decay, runs GPU steps without a second `flock`, and stops if the turn ends.
-  The run then starts a capture, waits an idle baseline, and runs each step over SSH with a
+  The run then starts a capture, waits an idle baseline, and runs each step over SSH with a host's `env`
+  exported first (for example `VK_DRIVER_FILES`, which pins the Vulkan driver MLX loads), with a
   mark before and after. Outside a turn, `--gpu-step` wraps the command in `flock -w 60 <gpu_lock>`. With no steps it
   runs the built-in probe: spin every P core, spin every E core (cluster map from the sampler), an
   MLX 4096×4096 fp16 matmul loop when `mlx_python` is set, a real LLM request (`llmstep.py`: warmup, then
