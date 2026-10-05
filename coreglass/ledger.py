@@ -45,13 +45,19 @@ def llm_runs(cfg, base, stack):
 
 
 def stack_info(host, python, driver):
-    """mlx version, Vulkan driver commit, and a short hash of the kernel release (the page names no kernels)."""
-    p = remote.ssh(host, f"{shlex.quote(python)} -c 'import mlx.core as m; print(m.__version__)'; "
-                         f"cat {shlex.quote(driver)}/mesa-git-sha 2>/dev/null || echo -; uname -r", timeout=60)
-    lines = p.stdout.split() if p.returncode == 0 else []
-    if len(lines) < 3:
+    """mlx version, the Vulkan driver the loader actually picks for this stack (vulkaninfo driverInfo, e.g.
+    "Mesa 26.3.0-devel (git-6dc1fba8e9)"), and a short hash of the kernel release (the page names no kernels)."""
+    icd = shlex.quote(f"{driver}/honeykrisp_icd.aarch64.json")
+    p = remote.ssh(host, f"{shlex.quote(python)} -c 'import mlx.core as m; print(m.__version__)' && uname -r && "
+                         f"VK_DRIVER_FILES={icd} vulkaninfo --summary 2>/dev/null | sed -n 's/.*driverInfo *= *//p' "
+                         "| head -1", timeout=60)
+    lines = p.stdout.splitlines() if p.returncode == 0 else []
+    if len(lines) < 3 or not lines[2].strip():
         return None
-    return {"wheel": lines[0], "driver": lines[1], "kernel_id": hashlib.sha1(lines[2].encode()).hexdigest()[:8]}
+    info = lines[2].strip()
+    sha = re.search(r"git-([0-9a-f]+)", info)
+    return {"wheel": lines[0].strip(), "driver": sha[1] if sha else info, "driver_info": info,
+            "kernel_id": hashlib.sha1(lines[1].strip().encode()).hexdigest()[:8]}
 
 
 def capture_metrics(capture):
