@@ -105,15 +105,17 @@ def preflight(host):
     return {"reachable": True, **json.loads(p.stdout)}
 
 
-def blockers(pf, host=None):
-    """Reasons not to start a run. On a host with `gpu_turn`, a held GPU lock does not block: the run queues for it."""
+def blockers(pf, host=None, in_turn=False):
+    """Reasons not to start a run. On a host with `gpu_turn`, a held GPU lock does not block: the run queues for it.
+    Inside a held turn, CPU load does not block either: the GPU is ours, every second of waiting idles the whole
+    queue, and the manifest records load1 for the reader."""
     out = []
     if not pf["reachable"]:
         out.append(f"unreachable: {pf['error']}")
     else:
         if pf["gpu_lock_held"] and not (host or {}).get("gpu_turn"):
             out.append("GPU lock held by another job")
-        if pf["load1"] >= 0.5:
+        if pf["load1"] >= 0.5 and not in_turn:
             out.append(f"not quiet: load1 {pf['load1']:.2f} >= 0.5")
         if pf["busy"]:
             out.append(f"lab job running: {pf['busy'][0]}")
@@ -192,7 +194,6 @@ def wait_ready(host, seconds, log, poll=60, only=lambda problem: True):
 
 
 TURN = "coreglass-turn"
-SETTLE = 120  # seconds inside a turn for load from the previous holder to decay
 
 
 def take_turn(host, seconds, log):
@@ -242,10 +243,10 @@ def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap
     if turn is None and host.get("gpu_turn") and not force:
         own = turn = acquire(host, wait, log)
     if turn:
-        wait = SETTLE
+        wait = 0
     try:
         if wait and not force:
-            wait_ready(host, wait, log, poll=10 if turn else 60)
+            wait_ready(host, wait, log)
         return _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log,
                     cancel, turn)
     finally:
@@ -266,7 +267,7 @@ def acquire(host, wait, log):
 def _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log, cancel,
          turn=None):
     pf = preflight(host)
-    problems = blockers(pf, host)
+    problems = blockers(pf, host, in_turn=bool(turn))
     if problems and (not force or not pf["reachable"]):
         raise SystemExit(f"{host['name']}: refusing to run: {'; '.join(problems)} (use --force to override)")
     stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
