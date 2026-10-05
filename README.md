@@ -76,7 +76,8 @@ It also records disk reads, faults, and kernel warnings. List several `llm_runs`
 and the probe sends the same request through each engine: mlx-lm in process, `mlx_lm.server`, or oMLX, with any Python
 and patch set you point it at. `coreglass phases` and the app then show the engines side by side.
 [docs/DESIGN.md](docs/DESIGN.md) has the full data coverage map, what is still missing and why, and the producer
-contract for the GPU and ANE drivers.
+contract for the GPU and ANE drivers. [docs/RESULTS.md](docs/RESULTS.md) has measured results: an M1, an M1 Max,
+and an M2 Max on one software stack, four LLM engines each.
 
 ## Comparison frames
 
