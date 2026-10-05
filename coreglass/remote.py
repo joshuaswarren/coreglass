@@ -232,18 +232,16 @@ def release(host, turn):
 
 
 def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record,
-            attach=None, log=lambda msg: print(msg, flush=True), cancel=None, wait=0, overrides=None):
+            attach=None, log=lambda msg: print(msg, flush=True), cancel=None, wait=0, overrides=None, turn=None):
     """Capture `name` while running marked steps. `attach(session)` lets a GUI show the stream; `cancel` (a
     threading.Event) stops before the next step. `wait` seconds lets a busy host become ready first; on a host with
-    `gpu_turn` it bounds the queue wait, and the whole run happens inside one turn. `overrides` replace host keys."""
+    `gpu_turn` it bounds the queue wait, and the whole run happens inside one turn. `overrides` replace host keys.
+    A caller that already holds a turn (`take_turn`) passes it, and the run uses it without releasing it."""
     host = {**resolve(name), **(overrides or {})}
-    turn = None
-    if host.get("gpu_turn") and not force:
-        if wait:  # a rebooting host cannot queue yet
-            wait_ready(host, wait, log, only=lambda problem: problem.startswith("unreachable"))
-        turn = take_turn(host, wait, log)
-        if not turn:
-            raise SystemExit(f"{host['name']}: no GPU turn within {max(wait, 15):g} s")
+    own = None
+    if turn is None and host.get("gpu_turn") and not force:
+        own = turn = acquire(host, wait, log)
+    if turn:
         wait = SETTLE
     try:
         if wait and not force:
@@ -251,8 +249,18 @@ def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap
         return _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log,
                     cancel, turn)
     finally:
-        if turn:
-            release(host, turn)
+        if own:
+            release(host, own)
+
+
+def acquire(host, wait, log):
+    """One GPU turn on `host`, waiting first for a rebooting host to answer. Raises SystemExit when none comes."""
+    if wait:
+        wait_ready(host, wait, log, only=lambda problem: problem.startswith("unreachable"))
+    turn = take_turn(host, wait, log)
+    if not turn:
+        raise SystemExit(f"{host['name']}: no GPU turn within {max(wait, 15):g} s")
+    return turn
 
 
 def _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log, cancel,

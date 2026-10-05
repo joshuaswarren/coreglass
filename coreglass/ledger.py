@@ -11,7 +11,9 @@ import json
 import re
 import shlex
 import statistics
+import threading
 import tomllib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -87,20 +89,31 @@ def measure_linux(cfg, target, stack, log):
             "env": {**host.get("env", {}), "VK_DRIVER_FILES": f"{driver}/honeykrisp_icd.aarch64.json"}}
     if host.get("gpu_turn") and cfg.get("turn_minutes"):
         over["gpu_turn"] = re.sub(r"-m \d+", f"-m {cfg['turn_minutes']}", host["gpu_turn"])
-    reps, warnings, failed = [], 0, []
-    for i in range(cfg.get("reps", 3)):
-        stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
-        record = str(CAPTURES / f"ledger-{host['name']}-{stack['label']}-{stamp}.jsonl")
+    turn = None
+    if host.get("gpu_turn"):  # one ticket for all reps: a queue full of long tickets would multiply the wait
         try:
-            remote.run_cmd(target["host"], [], [], True, 10, None, False, False, 8, 4, 10, record, log=log,
-                           wait=remote_wait(cfg), overrides=over)
+            turn = remote.acquire({**host, **over}, remote_wait(cfg), log)
         except SystemExit as e:
-            log(f"{host['name']} {stack['label']} rep {i + 1}: {e}")
-            continue
-        metrics, warn, bad = capture_metrics(record)
-        reps.append(metrics)
-        warnings += warn
-        failed += bad
+            log(f"{host['name']} {stack['label']}: {e}")
+            return None
+    reps, warnings, failed = [], 0, []
+    try:
+        for i in range(cfg.get("reps", 3)):
+            stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
+            record = str(CAPTURES / f"ledger-{host['name']}-{stack['label']}-{stamp}.jsonl")
+            try:
+                remote.run_cmd(target["host"], [], [], True, 10, None, False, False, 8, 4, 10, record, log=log,
+                               wait=remote_wait(cfg), overrides=over, turn=turn)
+            except SystemExit as e:
+                log(f"{host['name']} {stack['label']} rep {i + 1}: {e}")
+                continue
+            metrics, warn, bad = capture_metrics(record)
+            reps.append(metrics)
+            warnings += warn
+            failed += bad
+    finally:
+        if turn:
+            remote.release(host, turn)
     if not reps:
         return None
     return {"chip": host.get("chip", host["name"]), "os": "linux", "stack": stack["label"], **info,
@@ -274,26 +287,30 @@ def save(rows, cfg):
 
 
 def run_cmd(only, reference, log=lambda msg: print(msg, flush=True)):
+    """Every target and the reference in parallel (each Mac queues on its own GPU), stacks in order per target.
+    Each finished row is merged into the ledger at once, so a late or failed target never loses the others."""
     cfg = load_config()
     date = f"{datetime.now(timezone.utc):%Y-%m-%d}"
-    rows = load_rows()
-    fresh = []
-    for target in cfg["targets"]:
-        if only and target["host"] not in only:
-            continue
+    lock = threading.Lock()
+
+    def merge(row):
+        with lock:
+            key = (date, row["chip"], row["stack"])
+            save([r for r in load_rows() if (r["date"], r["chip"], r["stack"]) != key] + [{"date": date, **row}], cfg)
+
+    def target_job(target):
+        say = lambda msg: log(f"[{target['host']}] {msg}")
         for stack in cfg["stacks"]:
-            row = measure_linux(cfg, target, stack, log)
-            if row:
-                fresh.append({"date": date, **row})
-                rows = [r for r in rows if (r["date"], r["chip"], r["stack"]) != (date, row["chip"], row["stack"])]
-                save(rows + fresh, cfg)
+            if row := measure_linux(cfg, target, stack, say):
+                merge(row)
+
+    jobs = [lambda t=t: target_job(t) for t in cfg["targets"] if not only or t["host"] in only]
     if reference and cfg.get("reference"):
-        row = measure_macos(cfg, cfg["reference"], log)
-        rows = [r for r in rows if (r["date"], r["chip"], r["stack"]) != (date, row["chip"], row["stack"])]
-        fresh.append({"date": date, **row})
-    rows += fresh
-    save(rows, cfg)
-    for line in summary(rows, cfg, date):
+        jobs.append(lambda: merge(measure_macos(cfg, cfg["reference"], lambda msg: log(f"[reference] {msg}"))))
+    with ThreadPoolExecutor(max_workers=len(jobs) or 1) as ex:
+        for f in [ex.submit(j) for j in jobs]:
+            f.result()
+    for line in summary(load_rows(), cfg, date):
         print(line, flush=True)
 
 
