@@ -131,6 +131,19 @@ class Remote(unittest.TestCase):
         self.assertEqual(remote.blockers({**held, "yield_active": False}, unit), ["GPU lock held by another job"])
         self.assertEqual(remote.blockers(held, {}), ["GPU lock held by another job"])
 
+    def test_wait_ready_polls_until_quiet_and_gives_up_at_deadline(self):
+        loads, real = iter([2.0, 0.9, 0.1, 0.1]), remote.preflight
+        remote.preflight = lambda h: {"reachable": True, "gpu_lock_held": False, "load1": next(loads), "busy": []}
+        try:
+            said = []
+            remote.wait_ready({}, 60, said.append, poll=0)
+            self.assertEqual(next(loads), 0.1)  # returned at the first quiet poll, not before
+            self.assertEqual(len(said), 2)  # one line per change of reason
+            remote.preflight = lambda h: {"reachable": False, "error": "timeout"}
+            remote.wait_ready({}, 0.05, said.append, poll=0.01)  # returns at the deadline; the run then refuses
+        finally:
+            remote.preflight = real
+
     def test_probe_steps_follow_clusters_and_mlx(self):
         meta = {"clusters": [{"label": "E", "cpus": [0, 1]}, {"label": "P0", "cpus": [2, 3]}]}
         steps = remote.probe_steps({"mlx_python": "/x/python"}, meta, 10)

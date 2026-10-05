@@ -27,6 +27,15 @@ def ingest_lab(args):
         print(f"{args.out}: {', '.join(bundle['sources']) or 'no receipts found'}")
 
 
+def duration(text):
+    """Seconds from '600', '45m', or '3h'."""
+    scale = {"s": 1, "m": 60, "h": 3600}.get(text[-1:].lower())
+    try:
+        return float(text[:-1]) * scale if scale else float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a duration: {text!r} (use 600, 45m, or 3h)") from None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="coreglass", description="Apple-Silicon inference studio for Linux. "
                                  "Run with no command to open the app.")
@@ -107,10 +116,12 @@ def main(argv=None):
     rn.add_argument("--port", type=int, default=8777)
     rn.add_argument("--headless", action="store_true")
     rn.add_argument("--force", action="store_true", help="run even if the host is busy or its GPU lock is held")
+    rn.add_argument("--wait", type=duration, default=0, metavar="TIME",
+                    help="wait up to TIME (e.g. 600, 45m, 3h) for a busy host to become ready, then run")
     rn.add_argument("--record", help="capture path (default captures/<host>-<UTC>.jsonl)")
     rn.set_defaults(fn=lambda a: remote.run_cmd(
         a.host, [s.split("=", 1) for s in a.step], [s.split("=", 1) for s in a.gpu_step], a.probe, a.hz, a.port,
-        not a.headless, a.force, a.baseline, a.gap, a.seconds, a.record))
+        not a.headless, a.force, a.baseline, a.gap, a.seconds, a.record, wait=a.wait))
 
     ph = sub.add_parser("phases", help="per-phase means of a capture (idle baseline + each run step): CPU, GPU, "
                                        "engine busy, power; the producer acceptance check")

@@ -53,6 +53,7 @@ coreglass live x --replay captures/<capture>.jsonl --speed 4   # play a capture 
 ```
 
 `coreglass run` refuses a busy target. Busy means a held GPU lock, load above 0.5, or a running benchmark.
+For a run with nobody at the keyboard, add `--headless --wait 3h`. It waits until the target is free, then runs.
 Add your own steps with `--step 'LABEL=CMD'`. A `--gpu-step` runs under the host GPU lock.
 Each run writes the capture and a `.run.json` manifest. The manifest holds step times, exit codes, and preflight state.
 

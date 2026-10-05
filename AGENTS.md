@@ -35,7 +35,8 @@ still missing.
 
 1. Run `coreglass hosts <target>` first. `coreglass run` refuses a target whose GPU lock is held,
    whose load1 is ≥ 0.5, or that runs a process matching `busy_patterns`. Do not pass `--force` over
-   a GPU lock that another job holds.
+   a GPU lock that another job holds. To run unattended, use `coreglass run <target> --headless --wait 3h`:
+   it polls the same preflight every minute and starts only when the target is ready.
 2. GPU steps run under the target's `gpu_lock` (`flock -w 60`). Start GPU work only through
    `--gpu-step` or the built-in probe.
 3. The sampler is read-only and needs no root. Do not add writes, root reads, or module-parameter

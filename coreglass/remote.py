@@ -177,11 +177,26 @@ def kernel_log(host, since):
     return [ln for ln in p.stdout.splitlines() if "UFW BLOCK" not in ln][-20:]
 
 
+def wait_ready(host, seconds, log, poll=60):
+    """Poll the preflight until the host has no blockers or `seconds` pass. The run then checks again itself."""
+    deadline, last = time.time() + seconds, None
+    while time.time() < deadline:
+        problems = blockers(preflight(host), host)
+        if not problems:
+            return
+        if problems != last:
+            log(f"waiting up to {(deadline - time.time()) / 60:.0f} min: {'; '.join(problems)}")
+            last = problems
+        time.sleep(min(poll, max(0.0, deadline - time.time())))
+
+
 def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record,
-            attach=None, log=lambda msg: print(msg, flush=True), cancel=None):
+            attach=None, log=lambda msg: print(msg, flush=True), cancel=None, wait=0):
     """Capture `name` while running marked steps. `attach(session)` lets a GUI show the stream;
-    `cancel` (a threading.Event) stops before the next step."""
+    `cancel` (a threading.Event) stops before the next step; `wait` seconds lets a busy host become ready first."""
     host = resolve(name)
+    if wait and not force:
+        wait_ready(host, wait, log)
     unit = host.get("yield_service")
     stopped = False
     if unit:
