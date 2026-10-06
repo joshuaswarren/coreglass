@@ -4,12 +4,16 @@ Run every day at 10:00 UTC by `coreglass ledger run`; a ledger day runs from 10:
 
 Regressions over 1% against the previous day are listed under the table with the commit range that could explain them. One cold request per rep moves by a few percent from run to run, so check the min-max spread in `docs/ledger.json` before you act on a flag.
 
-| Date | Mac | Stack | mlx | Vulkan driver | Qwen3.8-2B 4-bit · mlx-lm · prefill tok/s | Qwen3.8-2B 4-bit · mlx-lm · TTFT ms | Qwen3.8-2B 4-bit · mlx-lm · decode tok/s | Qwen3.8-2B 4-bit · oMLX · prefill tok/s | Qwen3.8-2B 4-bit · oMLX · TTFT ms | Qwen3.8-2B 4-bit · oMLX · decode tok/s | Qwen3-4B 4-bit · mlx-lm · prefill tok/s | Qwen3-4B 4-bit · mlx-lm · TTFT ms | Qwen3-4B 4-bit · mlx-lm · decode tok/s | Qwen3-4B 4-bit · oMLX · prefill tok/s | Qwen3-4B 4-bit · oMLX · TTFT ms | Qwen3-4B 4-bit · oMLX · decode tok/s | GPU matmul TFLOPS | ANE jobs/s |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-10-05 | M1 Ultra | macOS reference | `mlx 0.32.2` | `Metal (macOS 26.6.2)` | 1,253 (–, –) | 381 (–, –) | 145 (–, –) | 942 (–, –) | 506 (–, –) | 47.6 (–, –) | 791 (–, –) | 603 (–, –) | 63.8 (–, –) | 357 (–, –) | 1,335 (–, –) | 56.7 (–, –) | 5.55 (–, –) | – |
-| 2026-10-05 | M2 Max · T6021 | main | `0.32.4.dev202610052300+2540b10` | `6dc1fba8e9` | 1,541 (–, –) | 310 (–, –) | 91.2 (–, –) | 1,468 (–, –) | 325 (–, –) | 74.4 (–, –) | 707 (–, –) | 676 (–, –) | 47.8 (–, –) | 691 (–, –) | 691 (–, –) | 45.2 (–, –) | 2.77 (–, –) | 675 (–, –) |
-| 2026-10-05 | M1 · T8103 | release | `0.32.4.dev202610050725+5c15fba` | `e7631595df` | 405 (–, –) | 1,180 (–, –) | 43.2 (–, –) | 392 (–, –) | 1,218 (–, –) | 40.7 (–, –) | 174 (–, –) | 2,752 (–, –) | 17.1 (–, –) | 165 (–, –) | 2,890 (–, –) | 16.4 (–, –) | 0.48 (–, –) | 33,795 (–, –) |
-| 2026-10-05 | M1 · T8103 | main | `0.32.4.dev202610052300+2540b10` | `6dc1fba8e9` | 392 (–, –) | 1,218 (–, –) | 42.8 (–, –) | 379 (–, –) | 1,260 (–, –) | 39.9 (–, –) | 165 (–, –) | 2,891 (–, –) | 16.6 (–, –) | 161 (–, –) | 2,962 (–, –) | 16.0 (–, –) | 0.60 (–, –) | 33,852 (–, –) |
+The REGRESSION column flags every metric where main is worse than the same Mac's release stack by more than twice the larger min-max spread of the two rows.
+
+ANE jobs/s compares only Macs that run the same program: each cell names it. H13 (M1 family) and H14 (M2 family) add programs differ in shape and work per job, so their rates are not a chip comparison.
+
+| Date | Mac | Stack | mlx | Vulkan driver | REGRESSION vs release | Qwen3.8-2B 4-bit · mlx-lm · prefill tok/s | Qwen3.8-2B 4-bit · mlx-lm · TTFT ms | Qwen3.8-2B 4-bit · mlx-lm · decode tok/s | Qwen3.8-2B 4-bit · oMLX · prefill tok/s | Qwen3.8-2B 4-bit · oMLX · TTFT ms | Qwen3.8-2B 4-bit · oMLX · decode tok/s | Qwen3-4B 4-bit · mlx-lm · prefill tok/s | Qwen3-4B 4-bit · mlx-lm · TTFT ms | Qwen3-4B 4-bit · mlx-lm · decode tok/s | Qwen3-4B 4-bit · oMLX · prefill tok/s | Qwen3-4B 4-bit · oMLX · TTFT ms | Qwen3-4B 4-bit · oMLX · decode tok/s | GPU matmul TFLOPS | ANE jobs/s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-10-05 | M1 Ultra | macOS reference | `mlx 0.32.2` | `Metal (macOS 26.6.2)` |  | 1,253 (–, –) | 381 (–, –) | 145 (–, –) | 942 (–, –) | 506 (–, –) | 47.6 (–, –) | 791 (–, –) | 603 (–, –) | 63.8 (–, –) | 357 (–, –) | 1,335 (–, –) | 56.7 (–, –) | 5.55 (–, –) | – |
+| 2026-10-05 | M2 Max · T6021 | main | `0.32.4.dev202610052300+2540b10` | `6dc1fba8e9` |  | 1,541 (–, –) | 310 (–, –) | 91.2 (–, –) | 1,468 (–, –) | 325 (–, –) | 74.4 (–, –) | 707 (–, –) | 676 (–, –) | 47.8 (–, –) | 691 (–, –) | 691 (–, –) | 45.2 (–, –) | 2.77 (–, –) | 675 (–, –) · H14 add, 32 KiB |
+| 2026-10-05 | M1 · T8103 | release | `0.32.4.dev202610050725+5c15fba` | `e7631595df` |  | 405 (–, –) | 1,180 (–, –) | 43.2 (–, –) | 392 (–, –) | 1,218 (–, –) | 40.7 (–, –) | 174 (–, –) | 2,752 (–, –) | 17.1 (–, –) | 165 (–, –) | 2,890 (–, –) | 16.4 (–, –) | 0.48 (–, –) | 33,795 (–, –) · H13 add, 16 KiB |
+| 2026-10-05 | M1 · T8103 | main | `0.32.4.dev202610052300+2540b10` | `6dc1fba8e9` | **2B mlx-lm prefill -3.2%; 2B mlx-lm TTFT -3.2%; 2B mlx-lm decode -0.9%; 2B oMLX decode -2.0%; 4B mlx-lm prefill -4.8%; 4B mlx-lm TTFT -5.1%; 4B mlx-lm decode -2.9%; 4B oMLX prefill -2.4%; 4B oMLX TTFT -2.5%; 4B oMLX decode -2.4%** | 392 (–, –) | 1,218 (–, –) | 42.8 (–, –) | 379 (–, –) | 1,260 (–, –) | 39.9 (–, –) | 165 (–, –) | 2,891 (–, –) | 16.6 (–, –) | 161 (–, –) | 2,962 (–, –) | 16.0 (–, –) | 0.60 (–, –) | 33,852 (–, –) · H13 add, 16 KiB |
 
 ## Regressions
 
