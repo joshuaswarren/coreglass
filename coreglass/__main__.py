@@ -155,6 +155,12 @@ def main(argv=None):
     lr.add_argument("--late", action="store_true", help="mark rows as measured after the day's 10:00 UTC run")
     lr.set_defaults(fn=lambda a: ledger.run_cmd(a.only, not a.no_reference, a.stack, cells_only=a.cells_only,
                                                 late=a.late))
+    lm = lsub.add_parser("mark", help="mark one row contaminated (kept on the page, never a baseline or reference)")
+    lm.add_argument("date", help="ledger day, e.g. 2026-10-06")
+    lm.add_argument("chip", help="the row's Mac, as on the page (e.g. 'M1 Ultra')")
+    lm.add_argument("stack", help="the row's stack (e.g. 'macOS reference')")
+    lm.add_argument("reason")
+    lm.set_defaults(fn=lambda a: ledger.mark_cmd(a.date, a.chip, a.stack, a.reason))
     la = lsub.add_parser("add", help="merge a row from finished ledger captures that a run never merged")
     la.add_argument("host", help="hosts.toml name")
     la.add_argument("stack", help="stack label from ledger.toml")

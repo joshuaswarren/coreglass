@@ -256,22 +256,27 @@ def pct(new, old, name):
 
 
 def compare(rows, cfg):
-    """Per row: the change of every metric against the previous day and the best earlier day, and regressions."""
+    """Per row: the change of every metric against the previous day and the best earlier day, and regressions.
+    A regression must be worse than FLAG_PCT and than twice the larger rep spread of the two days, so a metric
+    that moves between modes from rep to rep does not raise a flag. Contaminated rows are never a baseline."""
     out = []
     for r in rows:
         earlier = sorted((x for x in rows if (x["chip"], x["stack"]) == (r["chip"], r["stack"])
-                          and x["date"] < r["date"]), key=lambda x: x["date"])
+                          and x["date"] < r["date"] and not x.get("contaminated")), key=lambda x: x["date"])
         prev = earlier[-1] if earlier else None
         cells, regressions = {}, []
         for name in metric_names(cfg):
-            v = r["metrics"].get(name, {}).get("median")
-            if v is None:
+            m = r["metrics"].get(name)
+            if not m or m.get("median") is None:
                 continue
+            v = m["median"]
             past = [x["metrics"][name]["median"] for x in earlier if name in x["metrics"]]
             best = (min if name.endswith(LOWER_IS_BETTER) else max)(past) if past else None
-            d_prev = pct(v, prev["metrics"][name]["median"], name) if prev and name in prev["metrics"] else None
+            p = prev["metrics"].get(name) if prev else None
+            d_prev = pct(v, p["median"], name) if p else None
             cells[name] = (v, d_prev, pct(v, best, name) if best is not None else None)
-            if d_prev is not None and d_prev < -FLAG_PCT:
+            spread = max(m.get("max", v) - m.get("min", v), p.get("max", 0) - p.get("min", 0)) if p else 0
+            if d_prev is not None and d_prev < -FLAG_PCT and abs(v - p["median"]) > 2 * spread:
                 regressions.append((name, d_prev))
         out.append((r, prev, cells, regressions))
     return out
@@ -380,7 +385,7 @@ def short(name):
 def parity(rows, cfg):
     names = [f"{m['label']} · {e['label']} · {k}" for m in cfg["models"] for e in cfg["engines"]
              for k in ("prefill tok/s", "decode tok/s")]
-    refs = {r["date"]: r for r in rows if r["os"] == "macos"}
+    refs = {r["date"]: r for r in rows if r["os"] == "macos" and not r.get("contaminated")}
     if not refs:
         return []
     out = ["", "## Linux as a percentage of the macOS reference", "",
@@ -402,8 +407,22 @@ def parity(rows, cfg):
 
 
 def day(r):
-    """The row's ledger day, marked when the row was measured after that day's run (a Mac that was out of service)."""
-    return f"{r['date']} (late)" if r.get("late") else r["date"]
+    """The row's ledger day, marked when the row was measured after that day's run (a Mac that was out of service)
+    or found contaminated (another workload shared the machine)."""
+    marks = (["late"] if r.get("late") else []) + (
+        [f"CONTAMINATED: {r['contaminated']}"] if r.get("contaminated") else [])
+    return r["date"] + "".join(f" **({m})**" if m.startswith("CONTAMINATED") else f" ({m})" for m in marks)
+
+
+def mark_cmd(date, chip, stack, reason):
+    """Mark one row contaminated: it stays on the page, flagged, and is never a baseline or a parity reference."""
+    cfg, rows = load_config(), load_rows()
+    hit = [r for r in rows if r["date"] == date and r["chip"] == chip and r["stack"] == stack]
+    if not hit:
+        raise SystemExit(f"no row {date} / {chip} / {stack}")
+    hit[0]["contaminated"] = reason
+    save(rows, cfg)
+    print(DOCS / "LEDGER.md")
 
 
 def summary(rows, cfg, date):

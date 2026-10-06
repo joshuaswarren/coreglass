@@ -214,6 +214,13 @@ class Remote(unittest.TestCase):
         cells, regs = last["2026-10-03"]
         self.assertAlmostEqual(cells[dec][2], -10.5)  # against the best day (100), not yesterday
         self.assertEqual([n for n, _ in regs], [ttft])  # -0.6% decode is under the flag; +1.3% TTFT is over
+        mm = "GPU matmul TFLOPS"
+        cfg2 = {"models": [], "engines": []}
+        a = {**row("2026-10-01", 0, 0), "metrics": {mm: {"median": 0.60, "min": 0.60, "max": 0.60}}}
+        b = {**row("2026-10-02", 0, 0), "metrics": {mm: {"median": 0.49, "min": 0.48, "max": 0.57}}}
+        self.assertEqual(ledger.compare([a, b], cfg2)[1][3], [])  # -18% but inside 2x the 0.09 rep spread
+        b["metrics"][mm] = {"median": 0.49, "min": 0.48, "max": 0.49}
+        self.assertEqual([n for n, _ in ledger.compare([a, b], cfg2)[1][3]], [mm])
 
     def test_ledger_correctness_flags_digest_drift_and_disagreeing_reps(self):
         chk = ledger.CHECK + "GDN"
