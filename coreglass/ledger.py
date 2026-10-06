@@ -55,20 +55,26 @@ def llm_runs(cfg, base, stack):
                    for c in cfg.get("checks", [])]
 
 
+PROBE = ("import mlx.core as m; d = getattr(m, 'device_info', dict)(); "
+         "print(m.__version__); print(d.get('driver_info', ''))")
+
+
 def stack_info(host, python, driver):
-    """mlx version, the Vulkan driver the loader actually picks for this stack (vulkaninfo driverInfo, e.g.
-    "Mesa 26.3.0-devel (git-6dc1fba8e9)"), and a short hash of the kernel release (the page names no kernels)."""
+    """mlx version, the Vulkan driver this stack's MLX process actually opened (mx.device_info driver_info, e.g.
+    "Mesa 26.3.0-devel (git-6dc1fba8e9)"; vulkaninfo when MLX does not report it), and a short hash of the kernel
+    release (the page names no kernels)."""
     icd = shlex.quote(f"{driver}/honeykrisp_icd.aarch64.json")
-    p = remote.ssh(host, f"{shlex.quote(python)} -c 'import mlx.core as m; print(m.__version__)' && uname -r && "
-                         f"VK_DRIVER_FILES={icd} vulkaninfo --summary 2>/dev/null | sed -n 's/.*driverInfo *= *//p' "
-                         "| head -1", timeout=60)
-    lines = p.stdout.splitlines() if p.returncode == 0 else []
-    if len(lines) < 3 or not lines[2].strip():
+    p = remote.ssh(host, f"export VK_DRIVER_FILES={icd}; {shlex.quote(python)} -c {shlex.quote(PROBE)} && uname -r && "
+                         "vulkaninfo --summary 2>/dev/null | sed -n 's/.*driverInfo *= *//p' | head -1", timeout=90)
+    lines = [ln.strip() for ln in p.stdout.splitlines()] if p.returncode == 0 else []
+    if len(lines) < 3:
         return None
-    info = lines[2].strip()
+    info = lines[1] or (lines[3] if len(lines) > 3 else "")
+    if not info:
+        return None
     sha = re.search(r"git-([0-9a-f]+)", info)
-    return {"wheel": lines[0].strip(), "driver": sha[1] if sha else info, "driver_info": info,
-            "kernel_id": hashlib.sha1(lines[1].strip().encode()).hexdigest()[:8]}
+    return {"wheel": lines[0], "driver": sha[1] if sha else info, "driver_info": info,
+            "kernel_id": hashlib.sha1(lines[2].encode()).hexdigest()[:8]}
 
 
 def capture_metrics(capture):
