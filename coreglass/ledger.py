@@ -146,8 +146,38 @@ def measure_linux(cfg, target, stack, log):
     if not reps:
         return None
     return {"chip": host.get("chip", host["name"]), "os": "linux", "stack": stack["label"], **info,
-            "reps": len(reps), "rejected_idle_w": rejected, "kernel_warnings": warnings,
-            "failed_steps": sorted(set(failed)), "metrics": summarize(reps)}
+            "ane_workload": ane_workload(host.get("ane_cmd", "")), "reps": len(reps), "rejected_idle_w": rejected,
+            "kernel_warnings": warnings, "failed_steps": sorted(set(failed)), "metrics": summarize(reps)}
+
+
+def ane_workload(cmd):
+    """'H13 add, 16 KiB' from an ane_cmd: ANE jobs/s compares only between Macs that run the same program."""
+    prog, size = re.search(r"fixtures/(h\d+)-anec/(\w+)/", cmd), re.search(r"head -c (\d+)", cmd)
+    if not prog:
+        return ""
+    return f"{prog[1].upper()} {prog[2]}" + (f", {int(size[1]) // 1024} KiB" if size else "")
+
+
+def vs_release(rows, cfg, stable="release", candidate="main"):
+    """Per (date, chip): metrics where `candidate` is worse than `stable` by more than twice the larger rep spread
+    (max - min) of the two rows. Returns {(date, chip): [(metric, change %)]}."""
+    by = {(r["date"], r["chip"], r["stack"]): r for r in rows}
+    out = {}
+    for (date, chip, stack), cand in by.items():
+        base = by.get((date, chip, stable))
+        if stack != candidate or not base:
+            continue
+        flags = []
+        for name in metric_names(cfg):
+            a, b = base["metrics"].get(name), cand["metrics"].get(name)
+            if not a or not b or min(a.get("n", 1), b.get("n", 1)) < 2:
+                continue
+            spread = max(a["max"] - a["min"], b["max"] - b["min"])
+            worse = (b["median"] - a["median"]) if name.endswith(LOWER_IS_BETTER) else (a["median"] - b["median"])
+            if worse > 2 * spread:
+                flags.append((name, pct(b["median"], a["median"], name)))
+        out[(date, chip)] = flags
+    return out
 
 
 def measure_macos(cfg, ref, log):
@@ -236,12 +266,22 @@ def render(rows, cfg):
              f"Regressions over {FLAG_PCT:g}% against the previous day are listed under the table with the commit "
              "range that could explain them. One cold request per rep moves by a few percent from run to run, so "
              "check the min-max spread in `docs/ledger.json` before you act on a flag.", "",
-             "| Date | Mac | Stack | mlx | Vulkan driver | " + " | ".join(names) + " |",
-             "|" + "---|" * (5 + len(names))]
+             "The REGRESSION column flags every metric where main is worse than the same Mac's release stack by "
+             "more than twice the larger min-max spread of the two rows.", "",
+             "ANE jobs/s compares only Macs that run the same program: each cell names it. H13 (M1 family) and H14 "
+             "(M2 family) add programs differ in shape and work per job, so their rates are not a chip comparison.",
+             "", "| Date | Mac | Stack | mlx | Vulkan driver | REGRESSION vs release | " + " | ".join(names) + " |",
+             "|" + "---|" * (6 + len(names))]
     compared = compare(rows, cfg)
+    against = vs_release(rows, cfg)
     for r, _, cells, _ in compared:
         vals = [f"{fmt(c[0])} ({sign(c[1])}, {sign(c[2])})" if (c := cells.get(n)) else "–" for n in names]
-        lines.append(f"| {r['date']} | {r['chip']} | {r['stack']} | `{r['wheel']}` | `{r['driver']}` | "
+        if r.get("ane_workload") and cells.get("ANE jobs/s"):
+            vals[-1] += f" · {r['ane_workload']}"
+        flags = against.get((r["date"], r["chip"])) if r["stack"] == "main" else None
+        flag = ("**" + "; ".join(f"{short(n)} {d:+.1f}%" for n, d in flags) + "**") if flags else (
+            "none" if flags is not None else "")
+        lines.append(f"| {r['date']} | {r['chip']} | {r['stack']} | `{r['wheel']}` | `{r['driver']}` | {flag} | "
                      + " | ".join(vals) + " |")
     lines += ["", "## Regressions", ""]
     flagged = False
@@ -260,6 +300,13 @@ def render(rows, cfg):
         lines.append("None.")
     lines += parity(rows, cfg)
     return "\n".join(lines) + "\n"
+
+
+def short(name):
+    """'Qwen3-4B 4-bit · oMLX · decode tok/s' -> '4B oMLX decode'."""
+    model, engine, metric = (name.split(" · ") + ["", ""])[:3]
+    size = re.search(r"(\d+(?:\.\d+)?B)", model)
+    return " ".join(x for x in (size[1] if size else model, engine, metric.split()[0] if metric else "") if x)
 
 
 def parity(rows, cfg):
@@ -296,6 +343,8 @@ def summary(rows, cfg, date):
                 if r["chip"] == chip and n in cells]
         lines.append(f"{chip}: {head} {eng} decode tok/s " + ", ".join(bits))
     regs = [f"{c[0]['chip']} {c[0]['stack']} {name} {d:+.1f}%" for c in today for name, d in c[3]]
+    regs += [f"{chip} main<release {short(name)} {d:+.1f}%" for (day, chip), flags in vs_release(rows, cfg).items()
+             if day == date for name, d in flags]
     lines.append(f"regressions >{FLAG_PCT:g}%: " + ("; ".join(regs[:4]) + (" …" if len(regs) > 4 else "")
                                                   if regs else "none"))
     return lines[:5]
