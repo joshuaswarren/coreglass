@@ -186,7 +186,7 @@ def measure_macos(cfg, ref, log):
             "llm_runs": llm_runs(cfg, base, {})}
     steps = [s for s in remote.probe_steps(host, {"clusters": []}, 10) if s[2]]
     reps = []
-    for i in range(cfg.get("reps", 3)):
+    for i in range(ref.get("reps", cfg.get("reps", 3))):
         out = {}
         for label, cmd, _ in steps:
             p = remote.ssh(host, "bash -s", cmd, timeout=1800)
@@ -202,9 +202,13 @@ def measure_macos(cfg, ref, log):
     p = remote.ssh(host, f"{shlex.quote(host['mlx_python'])} -c 'import mlx.core as m; print(m.__version__)'; "
                          "sw_vers -productVersion", timeout=60)
     ver, os_ver = (p.stdout.split() + ["-", "-"])[:2]
+    metrics = summarize(reps)
+    if ref.get("stat") == "best":  # a shared Mac: contention only slows a rep, so the best rep is the yardstick
+        for name, m in metrics.items():
+            m["median"] = m["min"] if name.endswith(LOWER_IS_BETTER) else m["max"]
     return {"chip": ref["chip"], "os": "macos", "stack": "macOS reference", "wheel": f"mlx {ver}",
             "driver": f"Metal (macOS {os_ver})", "kernel_id": "-", "reps": len(reps), "kernel_warnings": 0,
-            "failed_steps": [], "metrics": summarize(reps)}
+            "failed_steps": [], "stat": "best" if ref.get("stat") == "best" else "median", "metrics": metrics}
 
 
 def remote_wait(cfg):
@@ -318,7 +322,9 @@ def parity(rows, cfg):
     out = ["", "## Linux as a percentage of the macOS reference", "",
            "The reference is upstream MLX and mlx-lm on macOS on " + ", ".join(sorted({r["chip"] for r in refs.values()}))
            + ". It is a different chip from the Linux Macs, so the percentage is a fixed yardstick, not parity on equal "
-           "hardware.", "", "| Date | Mac | Stack | " + " | ".join(names) + " |", "|" + "---|" * (3 + len(names))]
+           "hardware. The reference Mac also serves live models, so its row uses the best of its reps (the highest "
+           "rate, the lowest TTFT) when `stat = \"best\"`: contention only ever slows a rep.", "",
+           "| Date | Mac | Stack | " + " | ".join(names) + " |", "|" + "---|" * (3 + len(names))]
     for r in rows:
         ref = refs.get(r["date"])
         if r["os"] != "linux" or not ref:
