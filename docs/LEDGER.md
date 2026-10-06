@@ -12,7 +12,7 @@ CORRECTNESS shows the greedy token digest of each check (GDN 1536-token prompt: 
 
 | Date | Mac | Stack | mlx | Vulkan driver | REGRESSION vs release | CORRECTNESS | Qwen3.8-2B 4-bit · mlx-lm · prefill tok/s | Qwen3.8-2B 4-bit · mlx-lm · TTFT ms | Qwen3.8-2B 4-bit · mlx-lm · decode tok/s | Qwen3.8-2B 4-bit · oMLX · prefill tok/s | Qwen3.8-2B 4-bit · oMLX · TTFT ms | Qwen3.8-2B 4-bit · oMLX · decode tok/s | Qwen3-4B 4-bit · mlx-lm · prefill tok/s | Qwen3-4B 4-bit · mlx-lm · TTFT ms | Qwen3-4B 4-bit · mlx-lm · decode tok/s | Qwen3-4B 4-bit · oMLX · prefill tok/s | Qwen3-4B 4-bit · oMLX · TTFT ms | Qwen3-4B 4-bit · oMLX · decode tok/s | GPU matmul TFLOPS | ANE jobs/s |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-10-06 | M1 Ultra | macOS reference | `mlx 0.32.2` | `Metal (macOS 26.6.2)` |  | GDN 1536-token prompt `3eb8824c` | 1,153 (-40.6%, -40.6%) | 414 (-68.3%, -68.3%) | 88.7 (-25.6%, -25.6%) | 1,839 (-0.6%, -0.6%) | 259 (-0.7%, -0.7%) | 107 (+0.1%, +0.1%) | 465 (-44.3%, -44.3%) | 1,027 (-79.4%, -79.4%) | 61.1 (-12.7%, -12.7%) | 829 (+1.4%, +1.4%) | 575 (+1.4%, +1.4%) | 65.2 (-7.9%, -7.9%) | 13.1 (-0.1%, -0.1%) | – |
+| 2026-10-06 **(CONTAMINATED: macstudio GPU shared with the Claude desktop app and oMLX load (omarchy-cluster 9e2010d))** | M1 Ultra | macOS reference | `mlx 0.32.2` | `Metal (macOS 26.6.2)` |  | GDN 1536-token prompt `3eb8824c` | 1,153 (-40.6%, -40.6%) | 414 (-68.3%, -68.3%) | 88.7 (-25.6%, -25.6%) | 1,839 (-0.6%, -0.6%) | 259 (-0.7%, -0.7%) | 107 (+0.1%, +0.1%) | 465 (-44.3%, -44.3%) | 1,027 (-79.4%, -79.4%) | 61.1 (-12.7%, -12.7%) | 829 (+1.4%, +1.4%) | 575 (+1.4%, +1.4%) | 65.2 (-7.9%, -7.9%) | 13.1 (-0.1%, -0.1%) | – |
 | 2026-10-06 | M1 · T8103 | release | `0.32.4.dev202610050725+5c15fba` | `e7631595df` |  | GDN 1536-token prompt `3448b4d8` | 406 (+0.3%, +0.3%) | 1,177 (+0.3%, +0.3%) | 43.2 (+0.0%, +0.0%) | 390 (-0.3%, -0.3%) | 1,222 (-0.3%, -0.3%) | 40.8 (+0.2%, +0.2%) | 174 (+0.1%, +0.1%) | 2,751 (+0.0%, +0.0%) | 17.0 (-0.6%, -0.6%) | 167 (+1.3%, +1.3%) | 2,853 (+1.3%, +1.3%) | 16.4 (+0.0%, +0.0%) | 0.49 (+2.1%, +2.1%) | 33,914 (+0.4%, +0.4%) · H13 add, 16 KiB |
 | 2026-10-06 | M1 · T8103 | main | `0.32.4.dev202610061000+bf62cfb` | `01de0431ed` | **4B mlx-lm decode -1.8%; 4B oMLX decode -1.8%** | GDN 1536-token prompt `3448b4d8` | 401 (+2.3%, +2.3%) | 1,192 (+2.2%, +2.2%) | 42.9 (+0.2%, +0.2%) | 382 (+1.0%, +1.0%) | 1,248 (+0.9%, +0.9%) | 40.3 (+1.0%, +1.0%) | 167 (+1.3%, +1.3%) | 2,854 (+1.3%, +1.3%) | 16.7 (+0.6%, +0.6%) | 164 (+2.0%, +2.0%) | 2,902 (+2.0%, +2.0%) | 16.1 (+0.6%, +0.6%) | 0.49 (-18.3%, -18.3%) | 33,787 (-0.2%, -0.2%) · H13 add, 16 KiB |
 | 2026-10-05 | M1 Ultra | macOS reference | `mlx 0.32.2` | `Metal (macOS 26.6.2)` |  |  | 1,943 (–, –) | 246 (–, –) | 119 (–, –) | 1,851 (–, –) | 258 (–, –) | 107 (–, –) | 834 (–, –) | 573 (–, –) | 70.0 (–, –) | 818 (–, –) | 583 (–, –) | 70.8 (–, –) | 13.2 (–, –) | – |
@@ -23,14 +23,7 @@ CORRECTNESS shows the greedy token digest of each check (GDN 1536-token prompt: 
 
 ## Regressions
 
-- 2026-10-06 M1 Ultra · macOS reference: Qwen3.8-2B 4-bit · mlx-lm · prefill tok/s -40.6% (mlx unchanged; driver unchanged; kernel unchanged)
-- 2026-10-06 M1 Ultra · macOS reference: Qwen3.8-2B 4-bit · mlx-lm · TTFT ms -68.3% (mlx unchanged; driver unchanged; kernel unchanged)
-- 2026-10-06 M1 Ultra · macOS reference: Qwen3.8-2B 4-bit · mlx-lm · decode tok/s -25.6% (mlx unchanged; driver unchanged; kernel unchanged)
-- 2026-10-06 M1 Ultra · macOS reference: Qwen3-4B 4-bit · mlx-lm · prefill tok/s -44.3% (mlx unchanged; driver unchanged; kernel unchanged)
-- 2026-10-06 M1 Ultra · macOS reference: Qwen3-4B 4-bit · mlx-lm · TTFT ms -79.4% (mlx unchanged; driver unchanged; kernel unchanged)
-- 2026-10-06 M1 Ultra · macOS reference: Qwen3-4B 4-bit · mlx-lm · decode tok/s -12.7% (mlx unchanged; driver unchanged; kernel unchanged)
-- 2026-10-06 M1 Ultra · macOS reference: Qwen3-4B 4-bit · oMLX · decode tok/s -7.9% (mlx unchanged; driver unchanged; kernel unchanged)
-- 2026-10-06 M1 · T8103 · main: GPU matmul TFLOPS -18.3% (mlx [2540b10...bf62cfb](https://github.com/joshuaswarren/omarchy-mlx/compare/2540b10...bf62cfb); driver [6dc1fba8e9...01de0431ed](https://github.com/joshuaswarren/mesa-1/compare/6dc1fba8e9...01de0431ed); kernel unchanged)
+None.
 
 ## Server cells
 
@@ -46,8 +39,6 @@ The reference is upstream MLX and mlx-lm on macOS on M1 Ultra. It is a different
 
 | Date | Mac | Stack | Qwen3.8-2B 4-bit · mlx-lm · prefill tok/s | Qwen3.8-2B 4-bit · mlx-lm · decode tok/s | Qwen3.8-2B 4-bit · oMLX · prefill tok/s | Qwen3.8-2B 4-bit · oMLX · decode tok/s | Qwen3-4B 4-bit · mlx-lm · prefill tok/s | Qwen3-4B 4-bit · mlx-lm · decode tok/s | Qwen3-4B 4-bit · oMLX · prefill tok/s | Qwen3-4B 4-bit · oMLX · decode tok/s |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 2026-10-06 | M1 · T8103 | release | 35% | 49% | 21% | 38% | 37% | 28% | 20% | 25% |
-| 2026-10-06 | M1 · T8103 | main | 35% | 48% | 21% | 38% | 36% | 27% | 20% | 25% |
 | 2026-10-05 | M2 Max · T6021 | release | 82% | 81% | 81% | 74% | 87% | 71% | 86% | 66% |
 | 2026-10-05 | M2 Max · T6021 | main | 79% | 77% | 79% | 70% | 85% | 68% | 84% | 64% |
 | 2026-10-05 | M1 · T8103 | release | 21% | 36% | 21% | 38% | 21% | 24% | 20% | 23% |

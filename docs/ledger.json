@@ -596,7 +596,8 @@
    "check \u00b7 GDN 1536-token prompt": [
     "3eb8824c5263e055"
    ]
-  }
+  },
+  "contaminated": "macstudio GPU shared with the Claude desktop app and oMLX load (omarchy-cluster 9e2010d)"
  },
  {
   "date": "2026-10-06",
