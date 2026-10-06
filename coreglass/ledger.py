@@ -511,15 +511,21 @@ def measure_cell(cfg, target, cell, log):
             "reps": out["gated_runs"], "kernel_warnings": 0, "failed_steps": [], **out}
 
 
-def merger(cfg, date):
+def merger(cfg, date, log=lambda msg: print(msg, flush=True)):
     lock = threading.Lock()
 
     def merge(row):
-        """Threads share `lock`; a second `coreglass ledger` process shares the flock on ledger.lock."""
+        """Threads share `lock`; a second `coreglass ledger` process shares the flock on ledger.lock. A rerun never
+        replaces a clean row of the same day with one that has fewer good reps."""
         with lock, open(DOCS / "ledger.lock", "w") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             key = (date, row["chip"], row["stack"])
-            save([r for r in load_rows() if (r["date"], r["chip"], r["stack"]) != key] + [{"date": date, **row}], cfg)
+            rows = load_rows()
+            old = next((r for r in rows if (r["date"], r["chip"], r["stack"]) == key), None)
+            if old and not old.get("contaminated") and old.get("reps", 0) > row.get("reps", 0):
+                log(f"kept {key}: it has {old['reps']} good reps, the rerun {row.get('reps', 0)}")
+                return
+            save([r for r in rows if (r["date"], r["chip"], r["stack"]) != key] + [{"date": date, **row}], cfg)
     return merge
 
 
