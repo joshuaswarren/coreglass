@@ -26,7 +26,7 @@ CAPTURES = Path.home() / ".local/share/coreglass/captures"
 LLM_KEYS = (("prefill_tok_s", "prefill tok/s"), ("ttft_ms", "TTFT ms"), ("decode_tok_s", "decode tok/s"))
 LOWER_IS_BETTER = ("TTFT ms",)
 FLAG_PCT = 1.0
-DAY_START_UTC_H = 10  # the daily run's hour: a late-night rerun still belongs to the day it completes
+DAY_START_UTC_H = 10  # the daily run's hour: a rerun before the next 10:00 UTC still belongs to that run's day
 
 
 def ledger_day(t):
