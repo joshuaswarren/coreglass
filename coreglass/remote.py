@@ -151,6 +151,8 @@ def probe_steps(host, meta, secs):
         steps.append(("E spin", SPIN.format(cpus=" ".join(map(str, by["E"])), secs=secs), False))
     if not steps:
         steps.append(("CPU spin", SPIN.format(cpus=" ".join(map(str, p)), secs=secs), False))
+    if not host.get("cpu_steps", True):
+        steps = []
     if host.get("mlx_python"):
         steps.append(("GPU matmul", MATMUL.format(py=host["mlx_python"], secs=secs + 5), True))
     if host.get("llm_model") or host.get("llm_runs"):
@@ -271,8 +273,7 @@ def _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, s
             if session is None:
                 raise SystemExit(f"{host['name']}: no GPU turn within {max(wait, 15):g} s")
             rest = [s for s in plan if not s[2]] + (
-                [s for s in probe_steps(host, session.meta, secs) if not s[2]]
-                if probing and host.get("cpu_steps", True) else [])
+                [s for s in probe_steps(host, session.meta, secs) if not s[2]] if probing else [])
         else:
             open_session()
             rest = probe_steps(host, session.meta, secs) + plan if probing else plan
