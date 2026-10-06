@@ -62,6 +62,8 @@ def stack_info(host, python, driver):
 
 
 def capture_metrics(capture):
+    """Metrics of one rep, its kernel warnings, failed steps, and its idle-baseline power (W on the hottest
+    rail the sampler sees). Foreign GPU work shows up as idle power far above the Mac's clean idle."""
     man = json.loads(Path(capture).with_suffix(".run.json").read_text())
     out = {}
     for s in man["steps"]:
@@ -72,10 +74,16 @@ def capture_metrics(capture):
                 out[f"{s['label']} · {name}"] = s["result"][key]
         elif s["label"] == "GPU matmul" and (m := re.search(r"tflops=([\d.]+)", s["stdout_tail"])):
             out["GPU matmul TFLOPS"] = float(m[1])
-    ane = next((p for p in remote.phases(capture)["phases"] if p["phase"] == "ANE"), None)
-    if ane and ane.get("ane_jobs_s"):
-        out["ANE jobs/s"] = ane["ane_jobs_s"]
-    return out, sum(len(s["kernel"]) for s in man["steps"]), [s["label"] for s in man["steps"] if s["rc"]]
+    phases = {p["phase"]: p for p in remote.phases(capture)["phases"]}
+    if phases.get("ANE", {}).get("ane_jobs_s"):
+        out["ANE jobs/s"] = phases["ANE"]["ane_jobs_s"]
+    idle_w = phases["idle"].get("heatpipe_w") or 0.0
+    return out, sum(len(s["kernel"]) for s in man["steps"]), [s["label"] for s in man["steps"] if s["rc"]], idle_w
+
+
+def valid(target, idle_w):
+    """A rep counts only when its idle baseline is clean (`idle_w_max` per target in ledger.toml)."""
+    return idle_w <= target.get("idle_w_max", float("inf"))
 
 
 def summarize(reps):
@@ -103,18 +111,26 @@ def measure_linux(cfg, target, stack, log):
         except SystemExit as e:
             log(f"{host['name']} {stack['label']}: {e}")
             return None
-    reps, warnings, failed = [], 0, []
+    reps, warnings, failed, rejected = [], 0, [], []
+    want = cfg.get("reps", 3)
     try:
-        for i in range(cfg.get("reps", 3)):
+        for i in range(want + 2):  # two spare attempts for reps rejected as contaminated
+            if len(reps) == want:
+                break
             stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
             record = str(CAPTURES / f"ledger-{host['name']}-{stack['label']}-{stamp}.jsonl")
             try:
                 remote.run_cmd(target["host"], [], [], True, 10, None, False, False, 8, 4, 10, record, log=log,
                                wait=remote_wait(cfg), overrides=over, turn=turn)
             except SystemExit as e:
-                log(f"{host['name']} {stack['label']} rep {i + 1}: {e}")
+                log(f"{host['name']} {stack['label']} attempt {i + 1}: {e}")
                 continue
-            metrics, warn, bad = capture_metrics(record)
+            metrics, warn, bad, idle_w = capture_metrics(record)
+            if not valid(target, idle_w):
+                log(f"{host['name']} {stack['label']} attempt {i + 1} rejected: idle {idle_w:.1f} W > "
+                    f"{target['idle_w_max']} W (other GPU work during the rep)")
+                rejected.append(round(idle_w, 1))
+                continue
             reps.append(metrics)
             warnings += warn
             failed += bad
@@ -124,8 +140,8 @@ def measure_linux(cfg, target, stack, log):
     if not reps:
         return None
     return {"chip": host.get("chip", host["name"]), "os": "linux", "stack": stack["label"], **info,
-            "reps": len(reps), "kernel_warnings": warnings, "failed_steps": sorted(set(failed)),
-            "metrics": summarize(reps)}
+            "reps": len(reps), "rejected_idle_w": rejected, "kernel_warnings": warnings,
+            "failed_steps": sorted(set(failed)), "metrics": summarize(reps)}
 
 
 def measure_macos(cfg, ref, log):
@@ -337,12 +353,16 @@ def add_cmd(host_name, stack_label, captures):
     info = stack_info(host, f"{base}/{stack['venv']}/bin/python", f"{base}/{stack['driver']}")
     if not info:
         raise SystemExit(f"{host_name} {stack_label}: stack missing")
-    reps = [capture_metrics(c) for c in captures]
+    measured = [capture_metrics(c) for c in captures]
+    reps = [r for r in measured if valid(target, r[3])]
+    rejected = [round(r[3], 1) for r in measured if not valid(target, r[3])]
+    if not reps:
+        raise SystemExit(f"{host_name} {stack_label}: every capture failed the idle check {rejected}")
     stamp = re.search(r"(\d{8})T\d{6}Z", Path(captures[0]).name)[1]
     merger(cfg, f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:]}")(
         {"chip": host.get("chip", host["name"]), "os": "linux", "stack": stack_label, **info, "reps": len(reps),
-         "kernel_warnings": sum(r[1] for r in reps), "failed_steps": sorted({b for r in reps for b in r[2]}),
-         "metrics": summarize([r[0] for r in reps])})
+         "rejected_idle_w": rejected, "kernel_warnings": sum(r[1] for r in reps),
+         "failed_steps": sorted({b for r in reps for b in r[2]}), "metrics": summarize([r[0] for r in reps])})
     print(DOCS / "LEDGER.md")
 
 
