@@ -1,98 +1,6 @@
 [
  {
   "date": "2026-10-05",
-  "chip": "M1 Ultra",
-  "os": "macos",
-  "stack": "macOS reference",
-  "wheel": "mlx 0.32.2",
-  "driver": "Metal (macOS 26.6.2)",
-  "kernel_id": "-",
-  "reps": 3,
-  "kernel_warnings": 0,
-  "failed_steps": [],
-  "metrics": {
-   "GPU matmul TFLOPS": {
-    "median": 5.55,
-    "min": 5.53,
-    "max": 8.06,
-    "n": 3
-   },
-   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 TTFT ms": {
-    "median": 603.4,
-    "min": 592.7,
-    "max": 1876.0,
-    "n": 3
-   },
-   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 decode tok/s": {
-    "median": 63.8,
-    "min": 5.8,
-    "max": 65.1,
-    "n": 3
-   },
-   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 prefill tok/s": {
-    "median": 791.4,
-    "min": 254.4,
-    "max": 805.7,
-    "n": 3
-   },
-   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 TTFT ms": {
-    "median": 1334.9,
-    "min": 608.9,
-    "max": 1472.8,
-    "n": 3
-   },
-   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 decode tok/s": {
-    "median": 56.7,
-    "min": 5.8,
-    "max": 60.3,
-    "n": 3
-   },
-   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 prefill tok/s": {
-    "median": 357.3,
-    "min": 323.9,
-    "max": 783.4,
-    "n": 3
-   },
-   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 TTFT ms": {
-    "median": 381.2,
-    "min": 269.7,
-    "max": 390.3,
-    "n": 3
-   },
-   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 decode tok/s": {
-    "median": 145.0,
-    "min": 108.1,
-    "max": 167.3,
-    "n": 3
-   },
-   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 prefill tok/s": {
-    "median": 1253.4,
-    "min": 1223.6,
-    "max": 1772.6,
-    "n": 3
-   },
-   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 TTFT ms": {
-    "median": 506.3,
-    "min": 498.5,
-    "max": 692.4,
-    "n": 3
-   },
-   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 decode tok/s": {
-    "median": 47.6,
-    "min": 10.2,
-    "max": 78.4,
-    "n": 3
-   },
-   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 prefill tok/s": {
-    "median": 942.2,
-    "min": 688.9,
-    "max": 956.9,
-    "n": 3
-   }
-  }
- },
- {
-  "date": "2026-10-05",
   "chip": "M2 Max \u00b7 T6021",
   "os": "linux",
   "stack": "main",
@@ -391,5 +299,98 @@
    }
   },
   "ane_workload": "H13 add, 16 KiB"
+ },
+ {
+  "date": "2026-10-05",
+  "chip": "M1 Ultra",
+  "os": "macos",
+  "stack": "macOS reference",
+  "wheel": "mlx 0.32.2",
+  "driver": "Metal (macOS 26.6.2)",
+  "kernel_id": "-",
+  "reps": 5,
+  "kernel_warnings": 0,
+  "failed_steps": [],
+  "stat": "best",
+  "metrics": {
+   "GPU matmul TFLOPS": {
+    "median": 13.15,
+    "min": 5.31,
+    "max": 13.15,
+    "n": 5
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 TTFT ms": {
+    "median": 572.6,
+    "min": 572.6,
+    "max": 2148.0,
+    "n": 5
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 decode tok/s": {
+    "median": 70.0,
+    "min": 5.3,
+    "max": 70.0,
+    "n": 5
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 prefill tok/s": {
+    "median": 834.2,
+    "min": 222.1,
+    "max": 834.2,
+    "n": 5
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 TTFT ms": {
+    "median": 583.2,
+    "min": 583.2,
+    "max": 1139.9,
+    "n": 5
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 decode tok/s": {
+    "median": 70.8,
+    "min": 52.2,
+    "max": 70.8,
+    "n": 5
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 prefill tok/s": {
+    "median": 817.9,
+    "min": 418.5,
+    "max": 817.9,
+    "n": 5
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 TTFT ms": {
+    "median": 246.1,
+    "min": 246.1,
+    "max": 993.1,
+    "n": 5
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 decode tok/s": {
+    "median": 119.2,
+    "min": 13.2,
+    "max": 119.2,
+    "n": 5
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 prefill tok/s": {
+    "median": 1942.8,
+    "min": 480.5,
+    "max": 1942.8,
+    "n": 5
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 TTFT ms": {
+    "median": 257.7,
+    "min": 257.7,
+    "max": 480.7,
+    "n": 5
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 decode tok/s": {
+    "median": 106.9,
+    "min": 75.3,
+    "max": 106.9,
+    "n": 5
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 prefill tok/s": {
+    "median": 1850.9,
+    "min": 992.3,
+    "max": 1850.9,
+    "n": 5
+   }
+  }
  }
 ]
