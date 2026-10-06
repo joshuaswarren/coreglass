@@ -1,5 +1,7 @@
 # Coreglass
 
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink)](https://github.com/sponsors/joshuaswarren)
+
 Coreglass shows where local inference loses speed on Apple Silicon under Linux.
 It is a desktop app for Omarchy and other Linux desktops.
 It records live counters from the target laptops, runs marked workloads on them, and renders shareable frames.
@@ -126,3 +128,11 @@ python3 -m unittest discover -s tests
 ```
 
 Agents: read [AGENTS.md](AGENTS.md).
+
+## Support
+
+Every bit of support helps keep coreglass alive and free. If you are able, [sponsor on GitHub](https://github.com/sponsors/joshuaswarren) or send a Lightning donation to `joshuaswarren@strike.me` to directly fund continued development and new integrations.
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=for-the-badge)](https://github.com/sponsors/joshuaswarren)
+
+If financial support is not an option, you can still make a big difference: [star the repo](https://github.com/joshuaswarren/coreglass), share it, or recommend it to a colleague. Word of mouth is how most people find coreglass.
