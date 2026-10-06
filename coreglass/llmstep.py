@@ -4,6 +4,7 @@ Writes its pid to /tmp/coreglass-watch.pid so the sampler records its threads, w
 one measured request. The last stdout line is {"coreglass_result": {...}, "token_unix": [...]}.
 """
 
+import hashlib
 import json
 import os
 import sys
@@ -24,9 +25,10 @@ ids = tok.encode(text * max(1, round(n_prompt / 18)))  # same text servestep.py 
 for _ in stream_generate(model, tok, tok.encode("Warm up the GPU."), max_tokens=8):
     pass
 mx.reset_peak_memory()
-stamps, last, t = [], None, time.time()
-for last in stream_generate(model, tok, ids, max_tokens=n_gen):
+stamps, tokens, last, t = [], [], None, time.time()
+for last in stream_generate(model, tok, ids, max_tokens=n_gen):  # no sampler: greedy, so the tokens are a digest
     stamps.append(time.time())
+    tokens.append(int(last.token))
 weights = sum(p.stat().st_size for p in Path(model_dir).glob("*.safetensors"))
 cfg = json.loads((Path(model_dir) / "config.json").read_text())
 bits = (cfg.get("quantization") or {}).get("bits")
@@ -39,5 +41,6 @@ print(json.dumps({"coreglass_result": {
     "load_s": round(load_s, 2), "prompt_tokens": last.prompt_tokens,
     "prefill_tok_s": round(last.prompt_tps, 1), "ttft_ms": round((stamps[0] - t) * 1000, 1),
     "gen_tokens": last.generation_tokens, "decode_tok_s": round(last.generation_tps, 1),
-    "peak_mem_gb": round(last.peak_memory, 2), "weights_gb": round(weights / 1e9, 3)},
+    "peak_mem_gb": round(last.peak_memory, 2), "weights_gb": round(weights / 1e9, 3),
+    "tokens_sha": hashlib.sha256(",".join(map(str, tokens)).encode()).hexdigest()[:16]},
     "token_unix": [round(s, 4) for s in stamps]}), flush=True)

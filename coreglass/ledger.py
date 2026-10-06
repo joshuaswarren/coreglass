@@ -39,16 +39,19 @@ def metric_names(cfg):
     return names + ["GPU matmul TFLOPS", "ANE jobs/s"]
 
 
+CHECK = "check · "
+
+
 def llm_runs(cfg, base, stack):
-    runs = []
-    for m in cfg["models"]:
-        for e in cfg["engines"]:
-            run = {"label": f"{m['label']} · {e['label']}", "model": f"{base}/{m['dir']}",
-                   "engine": e.get("engine", "in-process")}
-            if e.get("overlay") and stack.get("overlay"):
-                run["env"] = {"PYTHONPATH": f"{base}/{stack['overlay']}"}
-            runs.append(run)
-    return runs
+    """The suite (every model x engine) plus the correctness checks: in-process greedy runs whose token digest must
+    match across stacks (e.g. a prompt long enough for the T>=512 GDN route)."""
+    overlay = {"env": {"PYTHONPATH": f"{base}/{stack['overlay']}"}} if stack.get("overlay") else {}
+    runs = [{"label": f"{m['label']} · {e['label']}", "model": f"{base}/{m['dir']}",
+             "engine": e.get("engine", "in-process"), **(overlay if e.get("overlay") else {})}
+            for m in cfg["models"] for e in cfg["engines"]]
+    return runs + [{"label": CHECK + c["label"], "model": f"{base}/{c['model']}", "engine": "in-process",
+                    "prompt_tokens": c["prompt_tokens"], "gen_tokens": c["gen_tokens"], **overlay}
+                   for c in cfg.get("checks", [])]
 
 
 def stack_info(host, python, driver):
@@ -68,23 +71,36 @@ def stack_info(host, python, driver):
 
 
 def capture_metrics(capture):
-    """Metrics of one rep, its kernel warnings, failed steps, and its idle-baseline power (W on the hottest
-    rail the sampler sees). Foreign GPU work shows up as idle power far above the Mac's clean idle."""
+    """Metrics of one rep, its kernel warnings, failed steps, its idle-baseline power (W on the hottest rail the
+    sampler sees; foreign GPU work shows up far above the Mac's clean idle), and its greedy token digests."""
     man = json.loads(Path(capture).with_suffix(".run.json").read_text())
-    out = {}
+    out, digests = {}, {}
     for s in man["steps"]:
         if s["rc"]:
             continue
         if s.get("result"):
-            for key, name in LLM_KEYS:
-                out[f"{s['label']} · {name}"] = s["result"][key]
+            if s["result"].get("tokens_sha"):
+                digests[s["label"]] = s["result"]["tokens_sha"]
+            if not s["label"].startswith(CHECK):
+                for key, name in LLM_KEYS:
+                    out[f"{s['label']} · {name}"] = s["result"][key]
         elif s["label"] == "GPU matmul" and (m := re.search(r"tflops=([\d.]+)", s["stdout_tail"])):
             out["GPU matmul TFLOPS"] = float(m[1])
     phases = {p["phase"]: p for p in remote.phases(capture)["phases"]}
     if phases.get("ANE", {}).get("ane_jobs_s"):
         out["ANE jobs/s"] = phases["ANE"]["ane_jobs_s"]
     idle_w = phases["idle"].get("heatpipe_w") or 0.0
-    return out, sum(len(s["kernel"]) for s in man["steps"]), [s["label"] for s in man["steps"] if s["rc"]], idle_w
+    failed = [s["label"] for s in man["steps"] if s["rc"]]
+    return out, sum(len(s["kernel"]) for s in man["steps"]), failed, idle_w, digests
+
+
+def digest_sets(dicts):
+    """{label: sorted unique digests} over reps: more than one digest for a label means a nondeterministic run."""
+    out = {}
+    for d in dicts:
+        for label, sha in d.items():
+            out.setdefault(label, set()).add(sha)
+    return {k: sorted(v) for k, v in out.items()}
 
 
 def valid(target, idle_w):
@@ -110,7 +126,7 @@ def measure_linux(cfg, target, stack, log):
             "env": {**host.get("env", {}), "VK_DRIVER_FILES": f"{driver}/honeykrisp_icd.aarch64.json"}}
     if host.get("gpu_turn") and cfg.get("turn_minutes"):
         over["gpu_turn"] = re.sub(r"-m \d+", f"-m {cfg['turn_minutes']}", host["gpu_turn"])
-    reps, warnings, failed, rejected = [], 0, [], []
+    reps, warnings, failed, rejected, digests = [], 0, [], [], []
     want = cfg.get("reps", 3)
     for i in range(want + 2):  # two spare attempts for reps rejected as contaminated
         if len(reps) == want:
@@ -123,20 +139,22 @@ def measure_linux(cfg, target, stack, log):
         except SystemExit as e:
             log(f"{host['name']} {stack['label']} attempt {i + 1}: {e}")
             continue
-        metrics, warn, bad, idle_w = capture_metrics(record)
+        metrics, warn, bad, idle_w, sha = capture_metrics(record)
         if not valid(target, idle_w):
             log(f"{host['name']} {stack['label']} attempt {i + 1} rejected: idle {idle_w:.1f} W > "
                 f"{target['idle_w_max']} W (other GPU work during the rep)")
             rejected.append(round(idle_w, 1))
             continue
         reps.append(metrics)
+        digests.append(sha)
         warnings += warn
         failed += bad
     if not reps:
         return None
     return {"chip": host.get("chip", host["name"]), "os": "linux", "stack": stack["label"], **info,
             "ane_workload": ane_workload(host.get("ane_cmd", "")), "reps": len(reps), "rejected_idle_w": rejected,
-            "kernel_warnings": warnings, "failed_steps": sorted(set(failed)), "metrics": summarize(reps)}
+            "kernel_warnings": warnings, "failed_steps": sorted(set(failed)), "metrics": summarize(reps),
+            "digests": digest_sets(digests)}
 
 
 def ane_workload(cmd):
@@ -169,25 +187,49 @@ def vs_release(rows, cfg, stable="release", candidate="main"):
     return out
 
 
+def correctness(rows, stable="release"):
+    """{(date, chip, stack): [problems]} for the check digests: reps of one stack that disagree, and any stack on
+    a Mac whose digest differs from that Mac's `stable` stack on the same day."""
+    by = {(r["date"], r["chip"], r["stack"]): r for r in rows}
+    out = {}
+    for (date, chip, stack), r in by.items():
+        base = by.get((date, chip, stable), {}).get("digests", {})
+        for label, shas in r.get("digests", {}).items():
+            if not label.startswith(CHECK):
+                continue
+            name = label[len(CHECK):]
+            if len(shas) > 1:
+                out.setdefault((date, chip, stack), []).append(f"{name}: reps disagree {'/'.join(s[:8] for s in shas)}")
+            elif stack != stable and base.get(label) and base[label] != shas:
+                out.setdefault((date, chip, stack), []).append(
+                    f"{name}: {shas[0][:8]} differs from {stable} {'/'.join(s[:8] for s in base[label])}")
+    return out
+
+
 def measure_macos(cfg, ref, log):
     base = ref["base"]
     host = {"name": "reference", "ssh": ref["ssh"], "mlx_python": f"{base}/{ref['venv']}/bin/python",
             "llm_runs": llm_runs(cfg, base, {})}
     steps = [s for s in remote.probe_steps(host, {"clusters": []}, 10) if s[2]]
-    reps = []
+    reps, digests = [], []
     for i in range(ref.get("reps", cfg.get("reps", 3))):
-        out = {}
+        out, sha = {}, {}
         for label, cmd, _ in steps:
             p = remote.ssh(host, "bash -s", cmd, timeout=1800)
             res = next((json.loads(ln) for ln in reversed(p.stdout.splitlines()) if ln.startswith(remote.RESULT)), None)
             if res:
-                for key, name in LLM_KEYS:
-                    out[f"{label} · {name}"] = res["coreglass_result"][key]
+                r = res["coreglass_result"]
+                if r.get("tokens_sha"):
+                    sha[label] = r["tokens_sha"]
+                if not label.startswith(CHECK):
+                    for key, name in LLM_KEYS:
+                        out[f"{label} · {name}"] = r[key]
             elif m := re.search(r"tflops=([\d.]+)", p.stdout):
                 out["GPU matmul TFLOPS"] = float(m[1])
             else:
                 log(f"reference {label} rep {i + 1}: rc {p.returncode} {p.stderr.strip()[-160:]}")
         reps.append(out)
+        digests.append(sha)
     p = remote.ssh(host, f"{shlex.quote(host['mlx_python'])} -c 'import mlx.core as m; print(m.__version__)'; "
                          "sw_vers -productVersion", timeout=60)
     ver, os_ver = (p.stdout.split() + ["-", "-"])[:2]
@@ -197,7 +239,8 @@ def measure_macos(cfg, ref, log):
             m["median"] = m["min"] if name.endswith(LOWER_IS_BETTER) else m["max"]
     return {"chip": ref["chip"], "os": "macos", "stack": "macOS reference", "wheel": f"mlx {ver}",
             "driver": f"Metal (macOS {os_ver})", "kernel_id": "-", "reps": len(reps), "kernel_warnings": 0,
-            "failed_steps": [], "stat": "best" if ref.get("stat") == "best" else "median", "metrics": metrics}
+            "failed_steps": [], "stat": "best" if ref.get("stat") == "best" else "median", "metrics": metrics,
+            "digests": digest_sets(digests)}
 
 
 def remote_wait(cfg):
@@ -263,10 +306,15 @@ def render(rows, cfg):
              "more than twice the larger min-max spread of the two rows.", "",
              "ANE jobs/s compares only Macs that run the same program: each cell names it. H13 (M1 family) and H14 "
              "(M2 family) add programs differ in shape and work per job, so their rates are not a chip comparison.",
-             "", "| Date | Mac | Stack | mlx | Vulkan driver | REGRESSION vs release | " + " | ".join(names) + " |",
-             "|" + "---|" * (6 + len(names))]
+             "", "CORRECTNESS shows the greedy token digest of each check (" + "; ".join(
+                 f"{c['label']}: {c['prompt_tokens']}-token prompt, {c['gen_tokens']} tokens" for c in
+                 cfg.get("checks", [])) + "). Main must match the same Mac's release digest, and every rep of a "
+             "stack must agree.", "",
+             "| Date | Mac | Stack | mlx | Vulkan driver | REGRESSION vs release | CORRECTNESS | "
+             + " | ".join(names) + " |", "|" + "---|" * (7 + len(names))]
     compared = compare(rows, cfg)
     against = vs_release(rows, cfg)
+    wrong = correctness(rows)
     for r, _, cells, _ in compared:
         vals = [f"{fmt(c[0])} ({sign(c[1])}, {sign(c[2])})" if (c := cells.get(n)) else "–" for n in names]
         if r.get("ane_workload") and cells.get("ANE jobs/s"):
@@ -274,8 +322,12 @@ def render(rows, cfg):
         flags = against.get((r["date"], r["chip"])) if r["stack"] == "main" else None
         flag = ("**" + "; ".join(f"{short(n)} {d:+.1f}%" for n, d in flags) + "**") if flags else (
             "none" if flags is not None else "")
+        checks = {k[len(CHECK):]: v for k, v in r.get("digests", {}).items() if k.startswith(CHECK)}
+        bad = wrong.get((r["date"], r["chip"], r["stack"]), [])
+        ok = "; ".join(f"{k} `{'/'.join(s[:8] for s in v)}`" for k, v in checks.items())
+        verdict = ("**" + "; ".join(bad) + "**") if bad else ok
         lines.append(f"| {r['date']} | {r['chip']} | {r['stack']} | `{r['wheel']}` | `{r['driver']}` | {flag} | "
-                     + " | ".join(vals) + " |")
+                     f"{verdict} | " + " | ".join(vals) + " |")
     lines += ["", "## Regressions", ""]
     flagged = False
     for r, prev, _, regs in compared:
@@ -337,7 +389,9 @@ def summary(rows, cfg, date):
         bits = [f"{r['stack']} {fmt(cells[n][0])} ({sign(cells[n][1])})" for r, _, cells, _ in today
                 if r["chip"] == chip and n in cells]
         lines.append(f"{chip}: {head} {eng} decode tok/s " + ", ".join(bits))
-    regs = [f"{c[0]['chip']} {c[0]['stack']} {name} {d:+.1f}%" for c in today for name, d in c[3]]
+    regs = [f"CORRECTNESS {chip} {stack}: {p}" for (day, chip, stack), problems in correctness(rows).items()
+            if day == date for p in problems]
+    regs += [f"{c[0]['chip']} {c[0]['stack']} {name} {d:+.1f}%" for c in today for name, d in c[3]]
     regs += [f"{chip} main<release {short(name)} {d:+.1f}%" for (day, chip), flags in vs_release(rows, cfg).items()
              if day == date for name, d in flags]
     lines.append(f"regressions >{FLAG_PCT:g}%: " + ("; ".join(regs[:4]) + (" …" if len(regs) > 4 else "")
@@ -413,7 +467,8 @@ def add_cmd(host_name, stack_label, captures):
     merger(cfg, ledger_day(datetime.strptime(stamp, "%Y%m%dT%H%M%SZ")))(
         {"chip": host.get("chip", host["name"]), "os": "linux", "stack": stack_label, **info, "reps": len(reps),
          "rejected_idle_w": rejected, "kernel_warnings": sum(r[1] for r in reps),
-         "failed_steps": sorted({b for r in reps for b in r[2]}), "metrics": summarize([r[0] for r in reps])})
+         "failed_steps": sorted({b for r in reps for b in r[2]}), "metrics": summarize([r[0] for r in reps]),
+         "digests": digest_sets([r[4] for r in reps])})
     print(DOCS / "LEDGER.md")
 
 

@@ -215,6 +215,17 @@ class Remote(unittest.TestCase):
         self.assertAlmostEqual(cells[dec][2], -10.5)  # against the best day (100), not yesterday
         self.assertEqual([n for n, _ in regs], [ttft])  # -0.6% decode is under the flag; +1.3% TTFT is over
 
+    def test_ledger_correctness_flags_digest_drift_and_disagreeing_reps(self):
+        chk = ledger.CHECK + "GDN"
+
+        def row(stack, shas):
+            return {"date": "d", "chip": "C", "stack": stack, "digests": {chk: shas, "M · mlx-lm": ["x"]}}
+        self.assertEqual(ledger.correctness([row("release", ["aaaa"]), row("main", ["aaaa"])]), {})
+        bad = ledger.correctness([row("release", ["aaaa"]), row("main", ["bbbb"])])
+        self.assertEqual(list(bad), [("d", "C", "main")])  # only the check counts, and only against release
+        flaky = ledger.correctness([row("release", ["aaaa", "cccc"])])
+        self.assertIn("reps disagree", flaky[("d", "C", "release")][0])
+
 
 class Render(unittest.TestCase):
     def test_every_frame_is_valid_svg_and_demo_is_stamped(self):
