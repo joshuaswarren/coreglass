@@ -204,9 +204,10 @@ busy_patterns = ["my-benchmark"]           # optional, processes that mean "busy
 - `coreglass run <host>` refuses when the preflight finds a held GPU lock, load1 ≥ 0.5, or a busy process,
   unless `--force`. `--wait TIME` polls that preflight every 60 s and starts as soon as no blocker remains; at the
   deadline the run checks once more and refuses. On a host with `gpu_turn`, a held lock does not block: the run
-  takes one turn from that FIFO wrapper (`<gpu_turn> -- CMD`) for all of its steps and starts at once: inside a
-  turn, CPU load does not block (the manifest records load1), so the lock never sits idle. GPU steps run without a
-  second `flock`, and the run stops if the turn ends.
+  submits one ticket to that FIFO wrapper (`<gpu_turn> -- bash -s`) whose command is the GPU work itself, a short
+  quiet baseline followed by every GPU step with start/end markers. The capture starts when the ticket does, marks
+  follow the markers, and the lock is free the moment the script ends. CPU steps run after the ticket, outside the
+  lock. Inside the ticket, CPU load does not block; the manifest records load1.
   The run then starts a capture, waits an idle baseline, and runs each step over SSH with a host's `env`
   exported first (for example `VK_DRIVER_FILES`, which pins the Vulkan driver MLX loads), with a
   mark before and after. Outside a turn, `--gpu-step` wraps the command in `flock -w 60 <gpu_lock>`. With no steps it

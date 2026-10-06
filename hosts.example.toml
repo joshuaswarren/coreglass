@@ -15,9 +15,10 @@
 # ane_cmd:       optional shell command that runs one batch of ANE work; the probe loops it for the ANE step,
 #                under gpu_lock and, when set, ane_lock.
 # ane_lock:      optional flock file your ANE tools already use.
-# gpu_turn:      optional FIFO wrapper that holds gpu_lock while its command runs, called as `<gpu_turn> -- CMD`
-#                (e.g. "~/bin/gpu-turn -m 6"). The run takes one turn for all its steps, so a held lock queues
-#                instead of blocking; steps stop if the wrapper's time limit ends the turn.
+# gpu_turn:      optional FIFO wrapper that holds gpu_lock while its command runs, called as `<gpu_turn> -- bash -s`
+#                (e.g. "~/bin/gpu-turn -m 6"). A run submits its GPU steps as that command, so a held lock queues
+#                instead of blocking and the lock is held only while GPU work runs. Set cpu_steps = false to skip
+#                the CPU spin steps.
 # env:           optional environment for every step, e.g. VK_DRIVER_FILES to pin the Vulkan driver MLX loads,
 #                so results do not depend on what else is installed on the target.
 

@@ -193,138 +193,163 @@ def wait_ready(host, seconds, log, poll=60, only=lambda problem: True):
         time.sleep(min(poll, max(0.0, deadline - time.time())))
 
 
-TURN = "coreglass-turn"
+MARK = "@@coreglass"
 
 
-def take_turn(host, seconds, log):
-    """Queue on the host's FIFO GPU wrapper (`gpu_turn`), which holds `gpu_lock` while its command runs. Our command
-    prints a marker and then reads stdin, so the turn lasts until `release`. Returns the ssh process once the turn
-    starts, or None when it did not start within `seconds`."""
-    remote = f"echo $$; exec {host['gpu_turn']} -- sh -c 'echo {TURN}; exec cat >/dev/null'"
-    p = subprocess.Popen(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host["ssh"], remote],
-                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-    lines = queue.Queue()
-    threading.Thread(target=lambda: ([lines.put(ln.strip()) for ln in p.stdout], lines.put(None)), daemon=True).start()
-    try:
-        p.ticket = lines.get(timeout=30)
-        if p.ticket:
-            log(f"queued for a GPU turn: {host['gpu_turn']}")
-        if p.ticket and lines.get(timeout=max(seconds, 15)) == TURN:
-            log("GPU turn started")
-            return p
-    except queue.Empty:
-        pass
-    release(host, p)
-    return None
-
-
-def release(host, turn):
-    """End a turn: EOF ends its `cat`, which frees the lock. A ticket still waiting in the queue is killed instead."""
-    turn.stdin.close()
-    try:
-        turn.wait(10)
-    except subprocess.TimeoutExpired:
-        if (getattr(turn, "ticket", None) or "").isdigit():
-            ssh(host, f"kill {turn.ticket}", timeout=30)
-        try:
-            turn.wait(30)
-        except subprocess.TimeoutExpired:
-            turn.kill()
+def turn_script(host, plan, baseline, gap):
+    """One shell script for a gpu_turn ticket: a quiet baseline, then every GPU step with start/end markers. The
+    ticket's command is the workload itself, so the lock is held only while GPU work runs."""
+    env = "".join(f"export {k}={shlex.quote(str(v))}\n" for k, v in host.get("env", {}).items())
+    out = [f"echo {MARK} turn", env, f"sleep {baseline:g}"]
+    for i, (_, cmd, _) in enumerate(plan):
+        out += [f"echo {MARK} start {i}",
+                f"bash -s 2>/tmp/coreglass-step-err.$$ <<'COREGLASS_{i}'\n{cmd}\nCOREGLASS_{i}",
+                f"rc=$?; echo {MARK} end {i} $rc",
+                f"tail -c 400 /tmp/coreglass-step-err.$$ | sed 's/^/{MARK} err {i} /'", f"sleep {gap:g}"]
+    return "\n".join(out + ["rm -f /tmp/coreglass-step-err.$$"]) + "\n"
 
 
 def run_cmd(name, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record,
-            attach=None, log=lambda msg: print(msg, flush=True), cancel=None, wait=0, overrides=None, turn=None):
+            attach=None, log=lambda msg: print(msg, flush=True), cancel=None, wait=0, overrides=None):
     """Capture `name` while running marked steps. `attach(session)` lets a GUI show the stream; `cancel` (a
     threading.Event) stops before the next step. `wait` seconds lets a busy host become ready first; on a host with
-    `gpu_turn` it bounds the queue wait, and the whole run happens inside one turn. `overrides` replace host keys.
-    A caller that already holds a turn (`take_turn`) passes it, and the run uses it without releasing it."""
+    `gpu_turn` it bounds the queue wait for the one ticket that runs every GPU step. `overrides` replace host keys."""
     host = {**resolve(name), **(overrides or {})}
-    own = None
-    if turn is None and host.get("gpu_turn") and not force:
-        own = turn = acquire(host, wait, log)
-    if turn:
-        wait = 0
-    try:
-        if wait and not force:
+    if wait and not force:
+        if host.get("gpu_turn"):  # a rebooting host cannot queue yet; the ticket itself waits for the GPU
+            wait_ready(host, wait, log, only=lambda problem: problem.startswith("unreachable"))
+        else:
             wait_ready(host, wait, log)
-        return _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log,
-                    cancel, turn)
-    finally:
-        if own:
-            release(host, own)
-
-
-def acquire(host, wait, log):
-    """One GPU turn on `host`, waiting first for a rebooting host to answer. Raises SystemExit when none comes."""
-    if wait:
-        wait_ready(host, wait, log, only=lambda problem: problem.startswith("unreachable"))
-    turn = take_turn(host, wait, log)
-    if not turn:
-        raise SystemExit(f"{host['name']}: no GPU turn within {max(wait, 15):g} s")
-    return turn
+    return _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log,
+                cancel, wait)
 
 
 def _run(host, steps, gpu_steps, probe, hz, port, serve, force, baseline, gap, secs, record, attach, log, cancel,
-         turn=None):
+         wait=0):
     pf = preflight(host)
-    problems = blockers(pf, host, in_turn=bool(turn))
+    in_turn = bool(host.get("gpu_turn")) and not force
+    problems = blockers(pf, host, in_turn=in_turn)
     if problems and (not force or not pf["reachable"]):
         raise SystemExit(f"{host['name']}: refusing to run: {'; '.join(problems)} (use --force to override)")
     stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
     record = record or f"captures/{host['name']}-{stamp}.jsonl"
-    session = Session(host["ssh"], hz, record, port if serve else None).start()
-    if attach:
-        attach(session)
-    if serve:
-        log(f"live: http://127.0.0.1:{port}/")
     plan = [(lab, cmd, False) for lab, cmd in steps] + [(lab, cmd, True) for lab, cmd in gpu_steps]
-    if probe or not plan:
-        plan = probe_steps(host, session.meta, secs) + plan
-    done = []
-    wait = (lambda s: cancel.wait(s)) if cancel else time.sleep
+    done, session = [], None
+
+    def open_session():
+        nonlocal session
+        session = Session(host["ssh"], hz, record, port if serve else None).start()
+        if attach:
+            attach(session)
+        if serve:
+            log(f"live: http://127.0.0.1:{port}/")
+        return session
+
+    def finish(label, gpu, cmd, rc, out, err, t0, w0, t1=None, w1=None):
+        """Record one step; `t1`/`w1` are its end (capture time / unix), default now."""
+        step = {"label": label, "gpu": gpu, "cmd": cmd[:400], "rc": rc, "start_unix": w0,
+                "end_unix": w1 or time.time(), "t_start": t0, "t_end": t1 if t1 is not None else session.hub.t,
+                "stdout_tail": out[-400:], "stderr_tail": err[-400:], "kernel": kernel_log(host, w0)}
+        res = next((json.loads(ln) for ln in reversed(out.splitlines()) if ln.startswith(RESULT)), None)
+        if res:
+            step["result"] = res["coreglass_result"]
+            start = session.meta["started"]
+            session.hub.publish(json.dumps({"tokens": {"label": label, "t": [round(u - start, 3)
+                                                                              for u in res["token_unix"]]}}))
+            step["stdout_tail"] = ""
+        done.append(step)
+        summary = " ".join(f"{k}={v}" for k, v in res["coreglass_result"].items()) if res else out.strip()[-120:]
+        log(f"{label}: rc={rc} {summary}" + (f" · {len(step['kernel'])} kernel warnings" if step["kernel"] else ""))
+
+    pause = (lambda s: cancel.wait(s)) if cancel else time.sleep
     try:
-        log(f"baseline {baseline:g} s")
-        wait(baseline)
-        for label, cmd, gpu in plan:
+        probing = probe or not plan
+        if in_turn:  # GPU work goes into one ticket; CPU steps run after it, outside the lock
+            ticket = [s for s in plan if s[2]] + (
+                [s for s in probe_steps(host, {"clusters": []}, secs) if s[2]] if probing else [])
+            _turn(host, ticket, baseline, gap, wait, log, open_session, finish)
+            if session is None:
+                raise SystemExit(f"{host['name']}: no GPU turn within {max(wait, 15):g} s")
+            rest = [s for s in plan if not s[2]] + (
+                [s for s in probe_steps(host, session.meta, secs) if not s[2]]
+                if probing and host.get("cpu_steps", True) else [])
+        else:
+            open_session()
+            rest = probe_steps(host, session.meta, secs) + plan if probing else plan
+            log(f"baseline {baseline:g} s")
+            pause(baseline)
+        for label, cmd, gpu in rest:
             if cancel and cancel.is_set():
                 log("cancelled")
                 break
             if gpu and not host.get("gpu_lock"):
                 raise SystemExit(f"{host['name']}: GPU step '{label}' needs gpu_lock in the hosts file")
-            if turn and turn.poll() is not None:
-                log(f"GPU turn ended before '{label}'; stopping")
-                break
-            locked = gpu and not turn  # inside a turn the wrapper already holds gpu_lock
-            script = f"flock -w 60 {shlex.quote(host['gpu_lock'])} bash -s <<'COREGLASS'\n{cmd}\nCOREGLASS" if locked else cmd
+            script = f"flock -w 60 {shlex.quote(host['gpu_lock'])} bash -s <<'COREGLASS'\n{cmd}\nCOREGLASS" if gpu else cmd
             script = "".join(f"export {k}={shlex.quote(str(v))}\n" for k, v in host.get("env", {}).items()) + script
             log(f"{label} …")
             session.mark(label)
             t0, w0 = session.hub.t, time.time()
             p = ssh(host, "bash -s", script, timeout=3600)
             session.mark("idle")
-            step = {"label": label, "gpu": gpu, "cmd": cmd[:400], "rc": p.returncode, "start_unix": w0,
-                    "end_unix": time.time(), "t_start": t0, "t_end": session.hub.t,
-                    "stdout_tail": p.stdout[-400:], "stderr_tail": p.stderr[-400:], "kernel": kernel_log(host, w0)}
-            res = next((json.loads(ln) for ln in reversed(p.stdout.splitlines()) if ln.startswith(RESULT)), None)
-            if res:
-                step["result"] = res["coreglass_result"]
-                start = session.meta["started"]
-                session.hub.publish(json.dumps({"tokens": {"label": label, "t": [round(u - start, 3)
-                                                                                  for u in res["token_unix"]]}}))
-                step["stdout_tail"] = ""
-            done.append(step)
-            summary = " ".join(f"{k}={v}" for k, v in res["coreglass_result"].items()) if res else p.stdout.strip()[-120:]
-            log(f"{label}: rc={p.returncode} {summary}" + (f" · {len(step['kernel'])} kernel warnings" if step["kernel"] else ""))
-            wait(gap)
-        wait(baseline)
+            finish(label, gpu, cmd, p.returncode, p.stdout, p.stderr, t0, w0)
+            pause(gap)
+        pause(baseline if not in_turn else 0)
     finally:
-        session.stop()
+        if session:
+            session.stop()
     manifest = {"schema": "coreglass/run/v1", "host": host, "preflight": pf, "forced_over": problems,
                 "capture": record, "samples": session.hub.count, "seconds": session.hub.t, "steps": done,
                 "coreglass_commit": _commit()}
     Path(record).with_suffix(".run.json").write_text(json.dumps(manifest, indent=1))
     log(f"{record}: {session.hub.count} samples, {session.hub.t:.1f} s; manifest {Path(record).with_suffix('.run.json')}")
     return record
+
+
+def _turn(host, plan, baseline, gap, wait, log, open_session, finish):
+    """Submit the GPU plan as one gpu_turn ticket and follow its markers. The capture starts when the ticket does,
+    so the idle baseline never includes another job's turn. Gives up (and kills the ticket) after `wait` s queued."""
+    p = subprocess.Popen(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host["ssh"],
+                          f"exec {host['gpu_turn']} -- bash -s"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         text=True)
+    p.stdin.write(turn_script(host, plan, baseline, gap))
+    p.stdin.close()
+    lines = queue.Queue()
+    threading.Thread(target=lambda: ([lines.put(ln.rstrip("\n")) for ln in p.stdout], lines.put(None)),
+                     daemon=True).start()
+    log(f"queued for a GPU turn: {host['gpu_turn']} ({len(plan)} GPU steps)")
+    try:
+        first = lines.get(timeout=max(wait, 15))
+    except queue.Empty:
+        first = None
+    if first != f"{MARK} turn":
+        p.kill()
+        return
+    session = open_session()
+    log(f"GPU turn started; baseline {baseline:g} s")
+    cur, out, err, t0, w0 = None, [], {}, 0.0, 0.0
+    pending = []
+    while (ln := lines.get()) is not None:
+        if not ln.startswith(MARK):
+            out.append(ln)
+            continue
+        kind, i, *rest = ln[len(MARK) + 1:].split(" ", 2) + [""]
+        i = int(i) if i.isdigit() else -1
+        if kind == "start":
+            cur, out, t0, w0 = i, [], session.hub.t, time.time()
+            session.mark(plan[i][0])
+            log(f"{plan[i][0]} …")
+        elif kind == "end":
+            session.mark("idle")
+            pending.append((i, int(rest[0] or 1), "\n".join(out), t0, w0, session.hub.t, time.time()))
+            cur = None
+        elif kind == "err":
+            err[i] = err.get(i, "") + rest[0] + "\n"
+    p.wait()
+    for i, rc, text, ts, ws, te, we in pending:
+        label, cmd, _ = plan[i]
+        finish(label, True, cmd, rc, text, err.get(i, ""), ts, ws, te, we)
+    if cur is not None:
+        log(f"GPU turn ended during '{plan[cur][0]}' (the ticket's time limit)")
 
 
 def _commit():

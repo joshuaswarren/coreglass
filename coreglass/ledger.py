@@ -106,43 +106,32 @@ def measure_linux(cfg, target, stack, log):
     if not info:
         log(f"{host['name']} {stack['label']}: stack missing ({python}, {driver}); skipped")
         return None
-    over = {"mlx_python": python, "llm_runs": llm_runs(cfg, base, stack),
+    over = {"mlx_python": python, "llm_runs": llm_runs(cfg, base, stack), "cpu_steps": False,
             "env": {**host.get("env", {}), "VK_DRIVER_FILES": f"{driver}/honeykrisp_icd.aarch64.json"}}
     if host.get("gpu_turn") and cfg.get("turn_minutes"):
         over["gpu_turn"] = re.sub(r"-m \d+", f"-m {cfg['turn_minutes']}", host["gpu_turn"])
-    turn = None
-    if host.get("gpu_turn"):  # one ticket for all reps: a queue full of long tickets would multiply the wait
-        try:
-            turn = remote.acquire({**host, **over}, remote_wait(cfg), log)
-        except SystemExit as e:
-            log(f"{host['name']} {stack['label']}: {e}")
-            return None
     reps, warnings, failed, rejected = [], 0, [], []
     want = cfg.get("reps", 3)
-    try:
-        for i in range(want + 2):  # two spare attempts for reps rejected as contaminated
-            if len(reps) == want:
-                break
-            stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
-            record = str(CAPTURES / f"ledger-{host['name']}-{stack['label']}-{stamp}.jsonl")
-            try:
-                remote.run_cmd(target["host"], [], [], True, 10, None, False, False, 8, 4, 10, record, log=log,
-                               wait=remote_wait(cfg), overrides=over, turn=turn)
-            except SystemExit as e:
-                log(f"{host['name']} {stack['label']} attempt {i + 1}: {e}")
-                continue
-            metrics, warn, bad, idle_w = capture_metrics(record)
-            if not valid(target, idle_w):
-                log(f"{host['name']} {stack['label']} attempt {i + 1} rejected: idle {idle_w:.1f} W > "
-                    f"{target['idle_w_max']} W (other GPU work during the rep)")
-                rejected.append(round(idle_w, 1))
-                continue
-            reps.append(metrics)
-            warnings += warn
-            failed += bad
-    finally:
-        if turn:
-            remote.release(host, turn)
+    for i in range(want + 2):  # two spare attempts for reps rejected as contaminated
+        if len(reps) == want:
+            break
+        stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
+        record = str(CAPTURES / f"ledger-{host['name']}-{stack['label']}-{stamp}.jsonl")
+        try:  # each rep is one gpu_turn ticket whose command is the GPU work itself
+            remote.run_cmd(target["host"], [], [], True, 10, None, False, False, cfg.get("baseline_s", 4), 2, 10,
+                           record, log=log, wait=remote_wait(cfg), overrides=over)
+        except SystemExit as e:
+            log(f"{host['name']} {stack['label']} attempt {i + 1}: {e}")
+            continue
+        metrics, warn, bad, idle_w = capture_metrics(record)
+        if not valid(target, idle_w):
+            log(f"{host['name']} {stack['label']} attempt {i + 1} rejected: idle {idle_w:.1f} W > "
+                f"{target['idle_w_max']} W (other GPU work during the rep)")
+            rejected.append(round(idle_w, 1))
+            continue
+        reps.append(metrics)
+        warnings += warn
+        failed += bad
     if not reps:
         return None
     return {"chip": host.get("chip", host["name"]), "os": "linux", "stack": stack["label"], **info,
