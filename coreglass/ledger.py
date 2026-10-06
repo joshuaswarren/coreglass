@@ -13,6 +13,7 @@ import re
 import shlex
 import statistics
 import threading
+import time
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -206,13 +207,42 @@ def correctness(rows, stable="release"):
     return out
 
 
+def mac_gpu_busy(host):
+    """macOS GPU Device Utilization % from ioreg (None when unreadable)."""
+    p = remote.ssh(host, "ioreg -r -d 1 -c IOAccelerator | grep -oE '\"Device Utilization %\"=[0-9]+' | head -1",
+                   timeout=30)
+    m = re.search(r"=(\d+)", p.stdout)
+    return int(m[1]) if m else None
+
+
+def mac_wait_quiet(host, limit, seconds, log, polls=3):
+    """Wait up to `seconds` for `polls` readings in a row at or below `limit` % GPU use. Returns the last reading
+    and whether the GPU was quiet."""
+    deadline, streak, busy = time.time() + seconds, 0, None
+    while True:
+        busy = mac_gpu_busy(host)
+        streak = streak + 1 if busy is not None and busy <= limit else 0
+        if streak >= polls:
+            return busy, True
+        if time.time() >= deadline:
+            return busy, False
+        time.sleep(10)
+
+
 def measure_macos(cfg, ref, log):
     base = ref["base"]
     host = {"name": "reference", "ssh": ref["ssh"], "mlx_python": f"{base}/{ref['venv']}/bin/python",
             "llm_runs": llm_runs(cfg, base, {})}
     steps = [s for s in remote.probe_steps(host, {"clusters": []}, 10) if s[2]]
-    reps, digests = [], []
+    reps, digests, skipped = [], [], []
+    limit = ref.get("gpu_busy_max")
     for i in range(ref.get("reps", cfg.get("reps", 3))):
+        if limit is not None:  # the reference Mac serves other work: measure only on a quiet GPU
+            busy, quiet = mac_wait_quiet(host, limit, ref.get("quiet_wait_s", 600), log)
+            if not quiet:
+                log(f"reference rep {i + 1} skipped: GPU {busy}% busy (limit {limit}%)")
+                skipped.append(busy)
+                continue
         out, sha = {}, {}
         for label, cmd, _ in steps:
             p = remote.ssh(host, "bash -s", cmd, timeout=1800)
@@ -237,10 +267,13 @@ def measure_macos(cfg, ref, log):
     if ref.get("stat") == "best":  # a shared Mac: contention only slows a rep, so the best rep is the yardstick
         for name, m in metrics.items():
             m["median"] = m["min"] if name.endswith(LOWER_IS_BETTER) else m["max"]
-    return {"chip": ref["chip"], "os": "macos", "stack": "macOS reference", "wheel": f"mlx {ver}",
-            "driver": f"Metal (macOS {os_ver})", "kernel_id": "-", "reps": len(reps), "kernel_warnings": 0,
-            "failed_steps": [], "stat": "best" if ref.get("stat") == "best" else "median", "metrics": metrics,
-            "digests": digest_sets(digests)}
+    row = {"chip": ref["chip"], "os": "macos", "stack": "macOS reference", "wheel": f"mlx {ver}",
+           "driver": f"Metal (macOS {os_ver})", "kernel_id": "-", "reps": len(reps), "kernel_warnings": 0,
+           "failed_steps": [], "stat": "best" if ref.get("stat") == "best" else "median", "metrics": metrics,
+           "digests": digest_sets(digests), "skipped_busy": skipped}
+    if limit is not None and not reps:
+        row["contaminated"] = f"GPU never quiet (last readings {skipped}% busy)"
+    return row
 
 
 def remote_wait(cfg):
