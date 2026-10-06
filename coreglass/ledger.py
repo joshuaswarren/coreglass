@@ -326,7 +326,7 @@ def render(rows, cfg):
         bad = wrong.get((r["date"], r["chip"], r["stack"]), [])
         ok = "; ".join(f"{k} `{'/'.join(s[:8] for s in v)}`" for k, v in checks.items())
         verdict = ("**" + "; ".join(bad) + "**") if bad else ok
-        lines.append(f"| {r['date']} | {r['chip']} | {r['stack']} | `{r['wheel']}` | `{r['driver']}` | {flag} | "
+        lines.append(f"| {day(r)} | {r['chip']} | {r['stack']} | `{r['wheel']}` | `{r['driver']}` | {flag} | "
                      f"{verdict} | " + " | ".join(vals) + " |")
     lines += ["", "## Regressions", ""]
     flagged = False
@@ -365,7 +365,7 @@ def cell_section(rows):
             vals.append(f"{fmt(a)} → {fmt(b)} ({sign(pct(b, a, n))})" if a and b else "–")
         text = "same off and on" if r.get("text_parity") else f"**differs**: off {r['texts'].get('off')} on " \
                                                                   f"{r['texts'].get('on')}"
-        out.append(f"| {r['date']} | {r['chip']} | {r['stack']} | {r['gated_runs']}/{r['runs']} | "
+        out.append(f"| {day(r)} | {r['chip']} | {r['stack']} | {r['gated_runs']}/{r['runs']} | "
                    + " | ".join(vals) + f" | {text} |")
     return out
 
@@ -397,8 +397,13 @@ def parity(rows, cfg):
         for n in names:
             a, b = r["metrics"].get(n, {}).get("median"), ref["metrics"].get(n, {}).get("median")
             cells.append(f"{a / b * 100:.0f}%" if a and b else "–")
-        out.append(f"| {r['date']} | {r['chip']} | {r['stack']} | " + " | ".join(cells) + " |")
+        out.append(f"| {day(r)} | {r['chip']} | {r['stack']} | " + " | ".join(cells) + " |")
     return out
+
+
+def day(r):
+    """The row's ledger day, marked when the row was measured after that day's run (a Mac that was out of service)."""
+    return f"{r['date']} (late)" if r.get("late") else r["date"]
 
 
 def summary(rows, cfg, date):
@@ -466,12 +471,14 @@ def merger(cfg, date):
     return merge
 
 
-def run_cmd(only, reference, stacks=(), log=lambda msg: print(msg, flush=True), cells_only=False):
+def run_cmd(only, reference, stacks=(), log=lambda msg: print(msg, flush=True), cells_only=False, late=False):
     """Every target and the reference in parallel (each Mac queues on its own GPU), stacks then server cells in order
-    per target. Each finished row is merged into the ledger at once, so a late or failed target never loses others."""
+    per target. Each finished row is merged into the ledger at once, so a late or failed target never loses others.
+    `late` marks rows measured after the day's run (a Mac that was out of service at 10:00 UTC)."""
     cfg = load_config()
     date = ledger_day(datetime.now(timezone.utc))
-    merge = merger(cfg, date)
+    put = merger(cfg, date)
+    merge = (lambda row: put({**row, "late": True})) if late else put
 
     def target_job(target):
         say = lambda msg: log(f"[{target['host']}] {msg}")
