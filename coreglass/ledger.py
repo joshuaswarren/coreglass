@@ -15,7 +15,7 @@ import statistics
 import threading
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import remote
@@ -26,6 +26,12 @@ CAPTURES = Path.home() / ".local/share/coreglass/captures"
 LLM_KEYS = (("prefill_tok_s", "prefill tok/s"), ("ttft_ms", "TTFT ms"), ("decode_tok_s", "decode tok/s"))
 LOWER_IS_BETTER = ("TTFT ms",)
 FLAG_PCT = 1.0
+DAY_START_UTC_H = 10  # the daily run's hour: a late-night rerun still belongs to the day it completes
+
+
+def ledger_day(t):
+    """Ledger day of a UTC time: days run from 10:00 UTC to 10:00 UTC the next day."""
+    return f"{t - timedelta(hours=DAY_START_UTC_H):%Y-%m-%d}"
 
 
 def metric_names(cfg):
@@ -221,7 +227,8 @@ def render(rows, cfg):
     names = metric_names(cfg)
     rows = sorted(rows, key=lambda r: (r["date"], r["os"], r["chip"], r["stack"]), reverse=True)
     lines = ["# Daily performance ledger", "",
-             "Run every day at 10:00 UTC by `coreglass ledger run`. The suite is frozen: "
+             "Run every day at 10:00 UTC by `coreglass ledger run`; a ledger day runs from 10:00 to 10:00 UTC. "
+             "The suite is frozen: "
              + ", ".join(m["label"] for m in cfg["models"]) + "; engines " + ", ".join(e["label"] for e in cfg["engines"])
              + f"; one cold greedy request each ({cfg.get('prompt_note', 'about 477 prompt + 128 generated tokens')}); "
              f"median of {cfg.get('reps', 3)} reps. Each cell is the median, then the change against the previous "
@@ -325,7 +332,7 @@ def run_cmd(only, reference, stacks=(), log=lambda msg: print(msg, flush=True)):
     """Every target and the reference in parallel (each Mac queues on its own GPU), stacks in order per target.
     Each finished row is merged into the ledger at once, so a late or failed target never loses the others."""
     cfg = load_config()
-    date = f"{datetime.now(timezone.utc):%Y-%m-%d}"
+    date = ledger_day(datetime.now(timezone.utc))
     merge = merger(cfg, date)
 
     def target_job(target):
@@ -358,8 +365,8 @@ def add_cmd(host_name, stack_label, captures):
     rejected = [round(r[3], 1) for r in measured if not valid(target, r[3])]
     if not reps:
         raise SystemExit(f"{host_name} {stack_label}: every capture failed the idle check {rejected}")
-    stamp = re.search(r"(\d{8})T\d{6}Z", Path(captures[0]).name)[1]
-    merger(cfg, f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:]}")(
+    stamp = re.search(r"\d{8}T\d{6}Z", Path(captures[0]).name)[0]
+    merger(cfg, ledger_day(datetime.strptime(stamp, "%Y%m%dT%H%M%SZ")))(
         {"chip": host.get("chip", host["name"]), "os": "linux", "stack": stack_label, **info, "reps": len(reps),
          "rejected_idle_w": rejected, "kernel_warnings": sum(r[1] for r in reps),
          "failed_steps": sorted({b for r in reps for b in r[2]}), "metrics": summarize([r[0] for r in reps])})
