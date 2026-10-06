@@ -392,5 +392,106 @@
     "n": 5
    }
   }
+ },
+ {
+  "date": "2026-10-05",
+  "chip": "M2 Max \u00b7 T6021",
+  "os": "linux",
+  "stack": "release",
+  "wheel": "0.32.4.dev202610050725+5c15fba",
+  "driver": "e7631595df",
+  "driver_info": "Mesa 26.3.0-devel (git-e7631595df)",
+  "kernel_id": "ffc9372b",
+  "ane_workload": "H14 add, 32 KiB",
+  "reps": 3,
+  "rejected_idle_w": [],
+  "kernel_warnings": 0,
+  "failed_steps": [],
+  "metrics": {
+   "ANE jobs/s": {
+    "median": 673.44,
+    "min": 673.425,
+    "max": 673.763,
+    "n": 3
+   },
+   "GPU matmul TFLOPS": {
+    "median": 2.77,
+    "min": 0.82,
+    "max": 2.78,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 TTFT ms": {
+    "median": 659.6,
+    "min": 658.5,
+    "max": 661.3,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 decode tok/s": {
+    "median": 50.0,
+    "min": 49.8,
+    "max": 50.2,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 prefill tok/s": {
+    "median": 723.7,
+    "min": 721.9,
+    "max": 724.9,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 TTFT ms": {
+    "median": 676.8,
+    "min": 675.7,
+    "max": 677.4,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 decode tok/s": {
+    "median": 46.9,
+    "min": 46.8,
+    "max": 47.3,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 prefill tok/s": {
+    "median": 704.8,
+    "min": 704.1,
+    "max": 705.9,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 TTFT ms": {
+    "median": 300.6,
+    "min": 295.8,
+    "max": 797.0,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 decode tok/s": {
+    "median": 96.6,
+    "min": 95.2,
+    "max": 96.7,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 prefill tok/s": {
+    "median": 1589.6,
+    "min": 599.4,
+    "max": 1615.5,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 TTFT ms": {
+    "median": 316.8,
+    "min": 315.2,
+    "max": 322.1,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 decode tok/s": {
+    "median": 79.5,
+    "min": 79.1,
+    "max": 79.6,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 prefill tok/s": {
+    "median": 1505.7,
+    "min": 1480.9,
+    "max": 1513.4,
+    "n": 3
+   }
+  }
  }
 ]
