@@ -4,7 +4,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from coreglass import build, compare, ingest, ledger, model, remote, sampler, theme, views
+from coreglass import build, cells, compare, ingest, ledger, model, remote, sampler, theme, views
 
 FIXTURE = build.REFERENCE
 
@@ -225,6 +225,22 @@ class Remote(unittest.TestCase):
         self.assertEqual(list(bad), [("d", "C", "main")])  # only the check counts, and only against release
         flaky = ledger.correctness([row("release", ["aaaa", "cccc"])])
         self.assertIn("reps disagree", flaky[("d", "C", "release")][0])
+
+    def test_cell_parse_counts_only_gated_runs_and_reads_server_decode(self):
+        def run(p, v, gate, c1, c4s, text):
+            res = lambda c, tok: json.dumps({"type": "result", "concurrency": c, "aggregate_tok_s": tok,
+                                             "request_results": [{"ttft_ms": 500.0, "completion_text_sha256": text}]})
+            logs = [f"@@cell log x Chat completion: model=m, 128 tokens in 2s ({t} tok/s)" for t in [c1, *c4s]]
+            return [f"@@cell run {p} {v} gate {gate} 0.99 0.0", f"@@cell bench {res(1, c1 - 10)}",
+                    f"@@cell bench {res(4, 60.0)}", *logs]
+        text = "\n".join(run(1, "off", 1, 87.0, [20, 21, 22, 23], "aa") + run(1, "on", 1, 93.0, [24] * 4, "aa")
+                         + run(2, "on", 0, 10.0, [1] * 4, "bb"))  # ungated: must not count
+        metrics, texts, gated, total = cells.parse(text, {"concurrency": [1, 4]})
+        self.assertEqual((gated, total), (2, 3))
+        self.assertEqual((metrics["off · c1 server decode tok/s"]["median"], metrics["on · c1 server decode tok/s"]["n"]),
+                         (87.0, 1))
+        self.assertEqual(metrics["off · c4 server decode tok/s"]["median"], 21.5)  # median of the 4 requests
+        self.assertEqual(texts, {"off": ["aa"], "on": ["aa"]})
 
 
 class Render(unittest.TestCase):

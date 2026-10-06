@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import remote
+from . import cells, remote
 
 CONFIG = Path.home() / ".config/coreglass/ledger.toml"
 DOCS = Path(__file__).resolve().parent.parent / "docs"
@@ -315,7 +315,7 @@ def render(rows, cfg):
     compared = compare(rows, cfg)
     against = vs_release(rows, cfg)
     wrong = correctness(rows)
-    for r, _, cells, _ in compared:
+    for r, _, cells, _ in (c for c in compared if not c[0].get("cell")):
         vals = [f"{fmt(c[0])} ({sign(c[1])}, {sign(c[2])})" if (c := cells.get(n)) else "–" for n in names]
         if r.get("ane_workload") and cells.get("ANE jobs/s"):
             vals[-1] += f" · {r['ane_workload']}"
@@ -343,8 +343,31 @@ def render(rows, cfg):
                          f"kernel {kernel})")
     if not flagged:
         lines.append("None.")
-    lines += parity(rows, cfg)
+    lines += cell_section(rows) + parity(rows, cfg)
     return "\n".join(lines) + "\n"
+
+
+def cell_section(rows):
+    """Server cells: each metric as off -> on with the change, per Mac and day."""
+    rows = sorted((r for r in rows if r.get("cell")), key=lambda r: (r["date"], r["chip"]), reverse=True)
+    if not rows:
+        return []
+    names = sorted({k.split(" · ", 1)[1] for r in rows for k in r["metrics"]})
+    out = ["", "## Server cells", "",
+           "Each cell starts a fresh server per variant, alternating the order across pairs, and runs c1 then c4 "
+           "streamed requests. Only runs that passed the quiet gate (CPU idle >= 92%, PSI cpu some = 0) count. "
+           "Values are medians, off -> on, with the change, where positive is better.", "",
+           "| Date | Mac | Cell | Gated runs | " + " | ".join(names) + " | Greedy text (c1) |", "|" + "---|" * (5 + len(names))]
+    for r in rows:
+        vals = []
+        for n in names:
+            a, b = r["metrics"].get(f"off · {n}", {}).get("median"), r["metrics"].get(f"on · {n}", {}).get("median")
+            vals.append(f"{fmt(a)} → {fmt(b)} ({sign(pct(b, a, n))})" if a and b else "–")
+        text = "same off and on" if r.get("text_parity") else f"**differs**: off {r['texts'].get('off')} on " \
+                                                                  f"{r['texts'].get('on')}"
+        out.append(f"| {r['date']} | {r['chip']} | {r['stack']} | {r['gated_runs']}/{r['runs']} | "
+                   + " | ".join(vals) + f" | {text} |")
+    return out
 
 
 def short(name):
@@ -368,7 +391,7 @@ def parity(rows, cfg):
            "| Date | Mac | Stack | " + " | ".join(names) + " |", "|" + "---|" * (3 + len(names))]
     for r in rows:
         ref = refs.get(r["date"])
-        if r["os"] != "linux" or not ref:
+        if r["os"] != "linux" or r.get("cell") or not ref:
             continue
         cells = []
         for n in names:
@@ -414,6 +437,23 @@ def save(rows, cfg):
     (DOCS / "LEDGER.md").write_text(render(rows, cfg))
 
 
+def measure_cell(cfg, target, cell, log):
+    """One server cell on one Mac (cells.py), as a ledger row keyed by the cell's label."""
+    host = remote.resolve(target["host"])
+    base = target.get("base", cfg["base"])
+    stack = next(s for s in cfg["stacks"] if s["label"] == cell["stack"])
+    driver = f"{base}/{stack['driver']}"
+    info = stack_info(host, f"{base}/{stack['venv']}/bin/python", driver)
+    if not info:
+        log(f"{cell['label']}: stack {stack['label']} missing; skipped")
+        return None
+    out = cells.measure(cfg, target, cell, stack, driver, log)
+    if not out:
+        return None
+    return {"chip": host.get("chip", host["name"]), "os": "linux", "stack": cell["label"], "cell": True, **info,
+            "reps": out["gated_runs"], "kernel_warnings": 0, "failed_steps": [], **out}
+
+
 def merger(cfg, date):
     lock = threading.Lock()
 
@@ -426,21 +466,24 @@ def merger(cfg, date):
     return merge
 
 
-def run_cmd(only, reference, stacks=(), log=lambda msg: print(msg, flush=True)):
-    """Every target and the reference in parallel (each Mac queues on its own GPU), stacks in order per target.
-    Each finished row is merged into the ledger at once, so a late or failed target never loses the others."""
+def run_cmd(only, reference, stacks=(), log=lambda msg: print(msg, flush=True), cells_only=False):
+    """Every target and the reference in parallel (each Mac queues on its own GPU), stacks then server cells in order
+    per target. Each finished row is merged into the ledger at once, so a late or failed target never loses others."""
     cfg = load_config()
     date = ledger_day(datetime.now(timezone.utc))
     merge = merger(cfg, date)
 
     def target_job(target):
         say = lambda msg: log(f"[{target['host']}] {msg}")
-        for stack in cfg["stacks"]:
+        for stack in [] if cells_only else cfg["stacks"]:
             if (not stacks or stack["label"] in stacks) and (row := measure_linux(cfg, target, stack, say)):
+                merge(row)
+        for cell in cfg.get("cells", []):
+            if row := measure_cell(cfg, target, cell, say):
                 merge(row)
 
     jobs = [lambda t=t: target_job(t) for t in cfg["targets"] if not only or t["host"] in only]
-    if reference and cfg.get("reference"):
+    if reference and cfg.get("reference") and not cells_only:
         jobs.append(lambda: merge(measure_macos(cfg, cfg["reference"], lambda msg: log(f"[reference] {msg}"))))
     with ThreadPoolExecutor(max_workers=len(jobs) or 1) as ex:
         for f in [ex.submit(j) for j in jobs]:
