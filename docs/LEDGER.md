@@ -34,7 +34,7 @@ Each cell starts a fresh server per variant, alternating the order across pairs,
 | Date | Mac | Cell | Gated runs | c1 TTFT ms | c1 aggregate tok/s | c1 server decode tok/s | c4 aggregate tok/s | c4 server decode tok/s | Greedy text (c1) |
 |---|---|---|---|---|---|---|---|---|---|
 | 2026-10-06 | M1 · T8103 | oMLX server · 2B · conv-fuse 0006 | 9/10 | 1,408 → 1,376 (+2.2%) | 29.1 → 29.7 (+1.9%) | 42.9 → 43.5 (+1.4%) | 18.1 → 18.3 (+1.0%) | 5.25 → 5.30 (+1.0%) | same off and on |
-| 2026-10-06 (late) | M1 Max · T6001 | oMLX server · 2B · conv-fuse 0006 | 2/6 | – | – | – | – | – | same off and on |
+| 2026-10-06 (late) | M1 Max · T6001 | oMLX server · 2B · conv-fuse 0006 | 6/10 | 612 → 597 (+2.3%) | 60.0 → 62.2 (+3.5%) | 84.3 → 87.8 (+4.1%) | 57.5 → 58.3 (+1.4%) | 17.1 → 17.4 (+1.8%) | same off and on |
 
 ## Linux as a percentage of the macOS reference
 
