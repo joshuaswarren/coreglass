@@ -121,6 +121,12 @@ def summarize(reps):
             for k in keys if (vs := [r[k] for r in reps if k in r])}
 
 
+def baseline_for(cfg, target):
+    """Idle seconds before a rep's timed block: a target's `cool_s` (a chip that throttles under continuous GPU load,
+    the M2 Max drops 16-20% within 30 s and recovers after 60 s idle) else the suite's `baseline_s`."""
+    return target.get("cool_s", cfg.get("baseline_s", 4))
+
+
 def measure_linux(cfg, target, stack, log):
     host = remote.resolve(target["host"])
     base = target.get("base", cfg["base"])
@@ -141,7 +147,7 @@ def measure_linux(cfg, target, stack, log):
         stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
         record = str(CAPTURES / f"ledger-{host['name']}-{stack['label']}-{stamp}.jsonl")
         try:  # each rep is one gpu_turn ticket whose command is the GPU work itself
-            remote.run_cmd(target["host"], [], [], True, 10, None, False, False, cfg.get("baseline_s", 4), 2, 10,
+            remote.run_cmd(target["host"], [], [], True, 10, None, False, False, baseline_for(cfg, target), 2, 10,
                            record, log=log, wait=remote_wait(cfg), overrides=over)
         except SystemExit as e:
             log(f"{host['name']} {stack['label']} attempt {i + 1}: {e}")

@@ -40,6 +40,7 @@ overlay = "mlx-lm-series-main/lib/python3.14/site-packages"
 
 [[targets]]               # hosts.toml names; chips come from each host's `chip`
 host = "m2max"
+# cool_s = 60              # optional: idle seconds before each timed rep, for a chip that throttles under continuous GPU load
 
 [reference]               # optional: upstream MLX on macOS, measured over SSH without the sampler
 ssh = "me@mac"

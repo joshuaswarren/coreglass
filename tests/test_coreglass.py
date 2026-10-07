@@ -199,6 +199,11 @@ class Remote(unittest.TestCase):
         vs[1]["decode_tok_s"] = 40.8
         self.assertEqual(compare.headline(vs, compare.deltas(vs))[1], "≈")
 
+    def test_ledger_idle_before_a_rep_is_the_targets_cool_down_else_the_suite_baseline(self):
+        self.assertEqual(ledger.baseline_for({"baseline_s": 4}, {"host": "m1"}), 4)
+        self.assertEqual(ledger.baseline_for({"baseline_s": 4}, {"host": "m2", "cool_s": 60}), 60)
+        self.assertEqual(ledger.baseline_for({}, {"host": "m1"}), 4)
+
     def test_ledger_day_says_when_the_reference_row_has_fewer_reps(self):
         ref = {"date": "2026-10-07", "reps": 2, "skipped_busy": [98, 99, 98]}
         self.assertEqual(ledger.day(ref), "2026-10-07 (2 of 5 reps: GPU busy)")
