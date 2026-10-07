@@ -446,10 +446,13 @@ def parity(rows, cfg):
 
 
 def day(r):
-    """The row's ledger day, marked when the row was measured after that day's run (a Mac that was out of service)
-    or found contaminated (another workload shared the machine)."""
+    """The row's ledger day, marked when the row was measured after that day's run (a Mac that was out of service),
+    found contaminated (another workload shared the machine), or taken from fewer reps than planned because the
+    shared reference Mac's GPU was busy."""
+    skipped = len(r.get("skipped_busy") or [])
     marks = (["late"] if r.get("late") else []) + (
-        [f"CONTAMINATED: {r['contaminated']}"] if r.get("contaminated") else [])
+        [f"CONTAMINATED: {r['contaminated']}"] if r.get("contaminated") else []) + (
+        [f"{r['reps']} of {r['reps'] + skipped} reps: GPU busy"] if skipped and r.get("reps") else [])
     return r["date"] + "".join(f" **({m})**" if m.startswith("CONTAMINATED") else f" ({m})" for m in marks)
 
 

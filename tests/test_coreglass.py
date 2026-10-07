@@ -199,6 +199,11 @@ class Remote(unittest.TestCase):
         vs[1]["decode_tok_s"] = 40.8
         self.assertEqual(compare.headline(vs, compare.deltas(vs))[1], "≈")
 
+    def test_ledger_day_says_when_the_reference_row_has_fewer_reps(self):
+        ref = {"date": "2026-10-07", "reps": 2, "skipped_busy": [98, 99, 98]}
+        self.assertEqual(ledger.day(ref), "2026-10-07 (2 of 5 reps: GPU busy)")
+        self.assertEqual(ledger.day({"date": "2026-10-07", "reps": 3, "skipped_busy": []}), "2026-10-07")
+
     def test_ledger_flags_regressions_by_direction_and_tracks_the_best_day(self):
         cfg = {"models": [{"label": "M"}], "engines": [{"label": "E"}]}
         dec, ttft = "M · E · decode tok/s", "M · E · TTFT ms"
