@@ -1858,12 +1858,12 @@
   "metrics": {},
   "digests": {},
   "skipped_busy": [
+   100,
+   98,
+   100,
    99,
-   98,
-   98,
-   98,
    98
   ],
-  "contaminated": "GPU never quiet (last readings [99, 98, 98, 98, 98]% busy)"
+  "contaminated": "GPU never quiet (last readings [100, 98, 100, 99, 98]% busy)"
  }
 ]
