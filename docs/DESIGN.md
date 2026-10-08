@@ -242,7 +242,7 @@ proxy to measured busy time with no Coreglass change.
 
 Neither driver exports busy time. Measured on an M1 Max (2026-10-02):
 
-- The linux-aurora GPU driver (module `asahi`) has no fdinfo `drm-engine-*` or `drm-cycles` keys. Its debugfs has only `clients`,
+- The linux-aurora GPU driver has no fdinfo `drm-engine-*` or `drm-cycles` keys. Its debugfs has only `clients`,
   `gem_names`, and `name`. Runtime PM reports `unsupported` for the GPU device.
 - The ANE device (`/sys/class/accel/accel0`) stays runtime-PM `active` all the time, and its genpd
   domains (`ane_sys`, `ane_set0`..`ane_set5`) stay on, so neither shows work.
@@ -254,13 +254,13 @@ Neither driver exports busy time. Measured on an M1 Max (2026-10-02):
 1. **Firmware stats → device busy time (do first).** The AGX firmware already sends `Utilization`
    (`util1`..`util4`), `PowerState` (`pstate`, `active`, `poweroff`), `PowerOn`/`PowerOff`
    (`on_time`/`off_time`), `FwBusy` (`busy`), `AvgPower`, and `Temperature` messages. The linux-aurora GPU
-   driver decodes them and only debug-logs them: `drivers/gpu/drm/asahi/channel.rs` `StatsChannel::poll`, message
+   driver decodes them and only debug-logs them: `StatsChannel::poll` in the driver's `channel.rs`, message
    layout in `fw/channels.rs` (`StatsMsg`), log class `StatsCh` = bit 18 of the `debug_flags` module
    parameter. Work: keep the latest values and cumulative counters in the device, export them per the
    producer contract, and validate field meaning against a controlled MLX load. Kernel work lands in
    linux-aurora (aurora-silicon/linux, base `aurora-wip`).
 2. **Per-core work assignment.** Mesa (joshuaswarren/mesa-1) lowers `load_core_id` to `AGX_SR_CORE_ID`
-   (`src/asahi/compiler/agx_compile.c`, `agx_opcodes.py` special register 20). An instrumented MLX kernel
+   (in the compiler's `agx_compile.c`, `agx_opcodes.py` special register 20). An instrumented MLX kernel
    can count workgroups per core, bracketed by Vulkan timestamp queries. Honeykrisp disables
    `VK_KHR_shader_clock` (`hk_physical_device.c`), so per-workgroup intervals need a proven clock source
    first. This measures assignment, not idle time.
@@ -285,7 +285,7 @@ Each driver exports one read-only sysfs file (mode 0444, no root needed) on its 
 
 | Engine | Path | Owner |
 |---|---|---|
-| GPU | `/sys/class/drm/card*/device/agx_stats` (the card bound to module `asahi`) | linux-aurora GPU driver |
+| GPU | `/sys/class/drm/card*/device/agx_stats` (the card bound to the linux-aurora GPU driver) | linux-aurora GPU driver |
 | ANE | `/sys/class/accel/accel*/device/ane_stats` | omarchy-ane |
 
 Format: one `key value` pair per line, ASCII, integers only. Unknown keys are allowed and passed
