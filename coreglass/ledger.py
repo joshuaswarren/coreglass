@@ -332,7 +332,7 @@ def fmt(v):
 
 
 def sign(p):
-    return "–" if p is None else f"{p:+.1f}%"
+    return "n/a" if p is None else f"{p:+.1f}%"
 
 
 def commit_of(wheel):
@@ -366,7 +366,7 @@ def render(rows, cfg):
     against = vs_release(rows, cfg)
     wrong = correctness(rows)
     for r, _, cells, _ in (c for c in compared if not c[0].get("cell")):
-        vals = [f"{fmt(c[0])} ({sign(c[1])}, {sign(c[2])})" if (c := cells.get(n)) else "–" for n in names]
+        vals = [f"{fmt(c[0])} ({sign(c[1])}, {sign(c[2])})" if (c := cells.get(n)) else "n/a" for n in names]
         if r.get("ane_workload") and cells.get("ANE jobs/s"):
             vals[-1] += f" · {r['ane_workload']}"
         flags = against.get((r["date"], r["chip"])) if r["stack"] == "main" else None
@@ -412,7 +412,7 @@ def cell_section(rows):
         vals = []
         for n in names:
             a, b = r["metrics"].get(f"off · {n}", {}).get("median"), r["metrics"].get(f"on · {n}", {}).get("median")
-            vals.append(f"{fmt(a)} → {fmt(b)} ({sign(pct(b, a, n))})" if a and b else "–")
+            vals.append(f"{fmt(a)} → {fmt(b)} ({sign(pct(b, a, n))})" if a and b else "n/a")
         text = "same off and on" if r.get("text_parity") else f"**differs**: off {r['texts'].get('off')} on " \
                                                                   f"{r['texts'].get('on')}"
         out.append(f"| {day(r)} | {r['chip']} | {r['stack']} | {r['gated_runs']}/{r['runs']} | "
@@ -450,7 +450,7 @@ def parity(rows, cfg):
         cells = []
         for n in names:
             a, b = r["metrics"].get(n, {}).get("median"), ref["metrics"].get(n, {}).get("median")
-            cells.append(f"{a / b * 100:.0f}%" if a and b else "–")
+            cells.append(f"{a / b * 100:.0f}%" if a and b else "n/a")
         out.append(f"| {day(r)} | {r['chip']} | {r['stack']} | " + " | ".join(cells) + " |")
     return out
 

@@ -2,19 +2,25 @@
 
 ## 2026-10-05: three Macs, one software stack
 
-The same model, the same prompt, and the same four LLM engines ran on an M1, an M1 Max, and an M2 Max.
+The same model, the same prompt, and the same four LLM engines ran on three Macs. They were an M1, an M1 Max,
+and an M2 Max.
 Each Mac ran Omarchy with the same kernel build. One unattended `coreglass run <target> --headless --wait 1h`
 captured each Mac.
 
 Stack on every Mac:
 
-- MLX: the released mlx-omarchy v0.7.28 wheel (`0.32.4.dev202610050725+5c15fba`), in a self-contained venv.
-- Vulkan driver: Honeykrisp from Mesa `e7631595df` (the `omarchy-mlx-vulkan` build), pinned for every step
-  with the host `env` key `VK_DRIVER_FILES`.
-- mlx-lm: oMLX's pin `94cdcae`. The "Omarchy patches" rows add omarchy-mlx's mlx-lm 0.32 patch series on top.
-- oMLX 0.7.0 with `--no-cache`. mlx_lm.server ran with `--decode-concurrency 1 --prompt-concurrency 1`.
-- Model: Qwen3.8-2B-mlx-4Bit, 477 prompt tokens and 128 generated tokens, one cold request per engine.
-- ANE: `ane-run` from omarchy-ane `259ba06` with that chip's add fixture.
+MLX: the released mlx-omarchy v0.7.28 wheel (`0.32.4.dev202610050725+5c15fba`), in a self-contained venv.
+
+Vulkan driver: Honeykrisp from Mesa `e7631595df` (the `omarchy-mlx-vulkan` build), pinned for every step with
+the host `env` key `VK_DRIVER_FILES`.
+
+mlx-lm: oMLX's pin `94cdcae`. The "Omarchy patches" rows add omarchy-mlx's mlx-lm 0.32 patch series on top.
+
+oMLX 0.7.0 with `--no-cache`. mlx_lm.server ran with `--decode-concurrency 1 --prompt-concurrency 1`.
+
+Model: Qwen3.8-2B-mlx-4Bit. 477 prompt tokens and 128 generated tokens. One cold request per engine.
+
+ANE: `ane-run` from omarchy-ane `259ba06` with that chip's add fixture.
 
 | | M1 | M1 Max | M2 Max |
 |---|---|---|---|
@@ -36,13 +42,18 @@ Stack on every Mac:
 
 How to read it:
 
-- Each cell is one request. A gap under 3% is a tie; one request cannot show run-to-run noise.
-- J/token is energy from the Total System Power rail over the decode window, divided by tokens.
-- The Omarchy patch series is the largest single factor on every chip. oMLX goes from 26.6 to 40.5 tok/s on the
-  M1 and from 49.9 to 79.7 on the M2 Max, and its TTFT falls by 6x to 10x.
-- The ANE row is not a chip comparison. The M1 and M1 Max ran the H13 add program on 16 KiB tiles. The M2 Max ran
-  the H14 add program on 32 KiB surfaces, and each of its jobs does far more work.
-- The two M1 Max kernel warnings were Wi-Fi scan messages (`brcmf_cfg80211_escan_handler`), not GPU or ANE.
+Each cell is one request. A gap under 3% is a tie; one request cannot show run-to-run noise.
+
+J/token is energy from the Total System Power rail over the decode window, divided by tokens.
+
+The Omarchy patch series is the largest single factor on every chip. oMLX goes from 26.6 to 40.5 tok/s on the
+M1. It goes from 49.9 to 79.7 on the M2 Max. Its TTFT falls by 6x to 10x.
+
+The ANE row is not a chip comparison. The M1 and M1 Max ran the H13 add program on 16 KiB tiles. The M2 Max ran
+the H14 add program on 32 KiB surfaces. Each of its jobs does far more work.
+
+The two M1 Max kernel warnings were Wi-Fi scan messages (`brcmf_cfg80211_escan_handler`). They were not GPU
+or ANE.
 
 ### The Vulkan driver matters more than the MLX build
 
@@ -55,5 +66,5 @@ same kernel:
 | stock Mesa 26.2.2 | 183.7 to 184.4 | 2,587 to 2,598 | 84.4 to 85.8 |
 | Honeykrisp `e7631595df` | 1,079.7 to 1,187.7 | 402 to 442 | 91.2 to 91.6 |
 
-Two MLX wheels (v0.7.26 and v0.7.28) gave the same slow prefill on the stock driver, so the driver was the cause.
+Two MLX wheels (v0.7.26 and v0.7.28) gave the same slow prefill on the stock driver. The driver was the cause.
 Install `omarchy-mlx-vulkan`, or set `VK_DRIVER_FILES` in the host's `env`, before you compare Macs.

@@ -15,18 +15,25 @@ A human opens one HTML file. An LLM reads one JSON summary.
 
 ## Rules
 
-- **Every number has provenance.** `prov` is one of `measured`, `replay`, `modeled`, `demo`.
-  The footer of each frame shows a chip for each kind of data in that frame.
-  - `measured`: parsed from a receipt by `coreglass ingest-lab`.
-  - `replay`: measured elsewhere and typed into a bundle (the committed fixture).
-  - `modeled`: derived from measurements by a rule that the frame states.
-  - `demo`: synthetic texture from `--demo`. Every frame then carries a red `DEMO` chip.
-- **No stand-in data without a label.** A missing input renders as "not captured".
-  It is never filled with a plausible value.
-- **Standard library only.** Python 3.11, no runtime dependencies, no JavaScript build.
-  Chrome is optional and only makes PNG files.
-- **Frames are products.** Each frame is a 1600×900 SVG with a fixed layout.
-  The headline number is at least 64 px, so it stays legible at 400 px wide.
+Every number has provenance. The `prov` field is one of `measured`, `replay`, `modeled`, `demo`. The
+footer of each frame shows a chip for each kind of data in that frame.
+
+The `measured` value is parsed from a receipt by `coreglass ingest-lab`.
+
+The `replay` value is measured elsewhere and typed into a bundle (the committed fixture).
+
+The `modeled` value is derived from measurements by a rule that the frame states.
+
+The `demo` value is synthetic texture from `--demo`. Every frame then carries a red `DEMO` chip.
+
+No stand-in data without a label. A missing input renders as "not captured". It is never filled with a
+plausible value.
+
+Standard library only. Python 3.11, no runtime dependencies, no JavaScript build. Chrome is optional and
+only makes PNG files.
+
+Frames are products. Each frame is a 1600×900 SVG with a fixed layout. The headline number is at least
+64 px, so it stays legible at 400 px wide.
 
 ## Data flow
 
@@ -50,10 +57,10 @@ flowchart LR
 
 ## Bundle format (`coreglass/v1`)
 
-A bundle is one JSON object. `coreglass build a.json b.json` merges bundles from left to right.
-List sections concatenate. A later record with the same `id`, `op`, or `label` replaces the earlier one.
-So a measured ingest replaces the replayed fixture value for the same item.
-`host` merges key by key. Other keys are replaced.
+A bundle is one JSON object. The `coreglass build a.json b.json` command merges bundles from left to
+right. List sections concatenate. A later record with the same `id`, `op`, or `label` replaces the earlier
+one. So a measured ingest replaces the replayed fixture value for the same item. The `host` section merges
+key by key. Other keys are replaced.
 
 | Section | Shape | Used by |
 |---|---|---|
@@ -75,7 +82,7 @@ Records that carry numbers also carry `prov` and `src` (a receipt path or a cita
 
 ## Findings
 
-`model.findings` turns the bundle into levers. Each lever has a `factor`: how much faster or
+The `model.findings` stage turns the bundle into levers. Each lever has a `factor`: how much faster or
 smoother the item gets if the gap closes. The list is sorted by factor.
 
 | Kind | Factor | `proven_factor` |
@@ -101,11 +108,11 @@ The kind is always shown next to the factor.
 | `flow` | How does one token move through host, queue, GPU, and memory? Where does the ANE connect? |
 | `gaps` | What does macOS already prove? What did the knobs do? Which limits bind? What is not captured? |
 
-With a live capture in the build, the `util` and `hero` heatmaps show measured per-core CPU rows
-and the GPU firmware event row. Without one, they are modeled. The decode heatmap then places the
-measured token split on a time axis: CPU during build and submit, GPU during the wait, at the measured
-share of the bandwidth ceiling. The ANE heatmap spreads equal work over the measured Linux and macOS
-latencies. Per-core variation in a modeled heatmap appears only with `--demo`.
+With a live capture in the build, the `util` and `hero` heatmaps show measured per-core CPU rows. They
+also show the GPU firmware event row. Without one, they are modeled. The decode heatmap then places the
+measured token split on a time axis. It shows CPU during build and submit. It shows GPU during the wait,
+at the measured share of the bandwidth ceiling. The ANE heatmap spreads equal work over the measured
+Linux and macOS latencies. Per-core variation in a modeled heatmap appears only with `--demo`.
 
 ## Live capture
 
@@ -114,8 +121,8 @@ python3 -m coreglass live m2max                   # dashboard at http://127.0.0.
 python3 -m coreglass build reference captures/<file>.jsonl -o out/capture --png
 ```
 
-`coreglass live` sends `sampler.py` over SSH (`python3 -u -`), so the target needs only Python 3 and
-no install. The sampler is read-only and needs no root. It prints one JSON line per tick:
+The `coreglass live` command sends `sampler.py` over SSH (`python3 -u -`), so the target needs only
+Python 3 and no install. The sampler is read-only and needs no root. It prints one JSON line per tick:
 
 | Field | Source | Meaning |
 |---|---|---|
@@ -129,11 +136,11 @@ no install. The sampler is read-only and needs no root. It prints one JSON line 
 | `eng{gpu,ane}` | `agx_stats`, `ane_stats` | driver busy fraction and jobs/s (see "Producer contract") |
 | `proc` | the pid in `/tmp/coreglass-watch.pid`; `/proc/<pid>/stat`, `task/*/schedstat` | the workload's CPU cores busy and run-queue wait, top threads, faults/s, RSS |
 
-Lines that are not samples: `{"mark": …}` (a step boundary or a key press) and
+Lines that are not samples: `{"mark": …}` (a step boundary or a key press). There is also
 `{"tokens": {"label": …, "t": [...]}}` (each generated token, on the sampler clock).
 
-The server records every line to `captures/<host>-<UTC>.jsonl`, fans it out over Server-Sent Events,
-and accepts `POST /mark?label=…`, which writes a mark into the capture. The dashboard is one
+The server records every line to `captures/<host>-<UTC>.jsonl`. It fans the lines out over Server-Sent
+Events. It also accepts `POST /mark?label=…`, which writes a mark into the capture. The dashboard is one
 1600×900 canvas, so `p` saves any moment as a shareable 3200×1800 PNG.
 
 First receipt: on an M2 Max, a pinned busy loop showed P busy 1.000 / E 0.016 and E 1.000 / P 0.005.
@@ -142,8 +149,8 @@ from 4.15 W to 57.02 W.
 
 ## Data coverage: what Linux LLM performance work needs
 
-One `coreglass run` with `llm_model` set answers these questions. `coreglass phases` prints them,
-`summary.json` and `summary.md` carry them for an LLM, and the app shows them under the capture.
+One `coreglass run` with `llm_model` set answers these questions. The `coreglass phases` output prints
+them. `summary.json` and `summary.md` carry them for an LLM. The app shows them under the capture.
 
 | Question | Data | Source | Status |
 |---|---|---|---|
@@ -161,15 +168,16 @@ One `coreglass run` with `llm_model` set answers these questions. `coreglass pha
 | Same request on macOS | the same numbers under macOS | the `reference` bundle | replay, from the lab |
 
 First LLM receipt, M1 with Qwen3.5 4-bit, 512-token prompt and 128 generated tokens: prefill 408 tok/s,
-TTFT 1,450 ms, decode 42.2 tok/s, token gap p50 23 ms / p99 60 ms, 0.385 J per token, and 14.4 ms of
-workload CPU time per token.
+TTFT 1,450 ms, and decode 42.2 tok/s. The token gap was p50 23 ms / p99 60 ms. Energy was 0.385 J per
+token. Workload CPU time was 14.4 ms per token.
 
 ## The app
 
 `coreglass` with no arguments runs `app.App`. It is a local standard-library HTTP server and one
 page of plain JavaScript (`apppage.py`), with no build step. The window opens through
 `omarchy-launch-webapp`, then `chromium --app`, then the default browser.
-`coreglass install` writes a `.desktop` entry and the icon, so the app shows in the launcher.
+The `coreglass install` command writes a `.desktop` entry and the icon, so the app shows in the
+launcher.
 
 | Route | Purpose |
 |---|---|
@@ -180,9 +188,10 @@ page of plain JavaScript (`apppage.py`), with no build step. The window opens th
 | `POST /api/build`, `/api/theme` | build frames for a capture; switch theme |
 
 Captures and built frames go to `$XDG_DATA_HOME/coreglass/{captures,out}`. The theme choice goes to
-`~/.config/coreglass/app.json`. `synthwave` is the default look. `omarchy` reads the active theme's
-`colors.toml` from `~/.local/state/omarchy/current/theme/` (or `~/.config/omarchy/current/theme/`)
-and maps it onto the same palette keys, so the frames follow the user's theme too.
+`~/.config/coreglass/app.json`. `synthwave` is the default look. The `omarchy` look reads the active
+theme's `colors.toml` from `~/.local/state/omarchy/current/theme/` (or
+`~/.config/omarchy/current/theme/`). It maps the file onto the same palette keys, so the frames follow
+the user's theme too.
 
 ## Hosts and remote runs
 
@@ -198,60 +207,70 @@ mlx_python = "/opt/mlx-venv/bin/python"    # optional, enables the MLX probe ste
 busy_patterns = ["my-benchmark"]           # optional, processes that mean "busy, do not start"
 ```
 
-- `coreglass hosts` runs a read-only preflight on each target: hostname, arch, model, load1, whether
-  the GPU lock is held (non-blocking `flock` test), processes matching `busy_patterns`, whether
-  `mlx_python` exists, and which driver stats files (`agx_stats`, `ane_stats`) are readable.
-- `coreglass run <host>` refuses when the preflight finds a held GPU lock, load1 ≥ 0.5, or a busy process,
-  unless `--force`. `--wait TIME` polls that preflight every 60 s and starts as soon as no blocker remains; at the
-  deadline the run checks once more and refuses. On a host with `gpu_turn`, a held lock does not block: the run
-  submits one ticket to that FIFO wrapper (`<gpu_turn> -- bash -s`) whose command is the GPU work itself, a short
-  quiet baseline followed by every GPU step with start/end markers. The capture starts when the ticket does, marks
-  follow the markers, and the lock is free the moment the script ends. CPU steps run after the ticket, outside the
-  lock. Inside the ticket, CPU load does not block; the manifest records load1.
-  The run then starts a capture, waits an idle baseline, and runs each step over SSH with a host's `env`
-  exported first (for example `VK_DRIVER_FILES`, which pins the Vulkan driver MLX loads), with a
-  mark before and after. Outside a turn, `--gpu-step` wraps the command in `flock -w 60 <gpu_lock>`. With no steps it
-  runs the built-in probe: spin every P core, spin every E core (cluster map from the sampler), an
-  MLX 4096×4096 fp16 matmul loop when `mlx_python` is set, a real LLM request (`llmstep.py`: warmup, then
-  `llm_prompt_tokens` prompt and `llm_gen_tokens` generated tokens) when `llm_model` is also set, and an ANE
-  step when `ane_cmd` is set. The ANE step loops `ane_cmd` for the step length under `gpu_lock` and, when
-  set, `flock -w 60 <ane_lock>`. After each step the run stores the target's kernel warnings and errors
-  in the manifest. A step that prints a `{"coreglass_result": …}` line gets its result stored too.
-  Each `llm_runs` entry is one step, labeled by `label`, with its own `python` and `env`. In-process runs use
-  `llmstep.py`. Server runs use `servestep.py`: it starts the server on a free loopback port, points the sampler at
-  the server pid, waits for `/v1/models`, sends an 8-token warmup, then streams one completion with the same prompt
-  and length. TTFT and token times come from the stream; token counts come from the server's `usage` when it reports
-  them. The server's process group is always stopped afterward.
-- `coreglass compare` turns 2 to 4 of those results (from one run or several) into one shareable frame, with
-  `compare.json` and `compare.md` for LLM readers.
-- Each run writes `captures/<host>-<UTC>.jsonl` and `<same>.run.json` (`coreglass/run/v1`): host entry,
-  preflight, any blockers overridden, per-step label, command, exit code, wall and capture times,
-  output tails, and the Coreglass commit.
-- `coreglass live <any> --replay <capture> --speed N` plays a capture through the dashboard, marks included.
+The `coreglass hosts` command runs a read-only preflight on each target. It checks hostname, arch,
+model, load1, whether the GPU lock is held (non-blocking `flock` test), and processes matching
+`busy_patterns`. It also checks whether `mlx_python` exists, and which driver stats files (`agx_stats`,
+`ane_stats`) are readable.
 
-Verified 2026-10-02 from an x86_64 viewer against an M1, an M1 Max, and an M2 Max laptop, and with
-the viewer itself on the M1 (aarch64, Python 3.14, Chromium PNG export).
+The `coreglass run <host>` command refuses when the preflight finds a held GPU lock, load1 ≥ 0.5, or a
+busy process, unless `--force`. The `--wait TIME` flag polls that preflight every 60 s and starts as soon
+as no blocker remains. At the deadline the run checks once more and refuses. On a host with `gpu_turn`, a
+held lock does not block. The run submits one ticket to that FIFO wrapper (`<gpu_turn> -- bash -s`). Its
+command is the GPU work itself: a short quiet baseline followed by every GPU step with start/end markers.
+The capture starts when the ticket does. Marks follow the markers. The lock is free the moment the script
+ends. CPU steps run after the ticket, outside the lock. Inside the ticket, CPU load does not block. The
+manifest records load1. The run then starts a capture and waits an idle baseline. It runs each step over
+SSH with a host's `env` exported first (for example `VK_DRIVER_FILES`, which pins the Vulkan driver MLX
+loads), with a mark before and after. Outside a turn, `--gpu-step` wraps the command in
+`flock -w 60 <gpu_lock>`. With no steps it runs the built-in probe. The probe spins every P core. It
+spins every E core (cluster map from the sampler). It runs an MLX 4096×4096 fp16 matmul loop when
+`mlx_python` is set. It runs a real LLM request (`llmstep.py`: warmup, then `llm_prompt_tokens` prompt and
+`llm_gen_tokens` generated tokens) when `llm_model` is also set. It runs an ANE step when `ane_cmd` is
+set. The ANE step loops `ane_cmd` for the step length under `gpu_lock` and, when set,
+`flock -w 60 <ane_lock>`. After each step the run stores the target's kernel warnings and errors in the
+manifest. A step that prints a `{"coreglass_result": …}` line gets its result stored too. Each `llm_runs`
+entry is one step, labeled by `label`, with its own `python` and `env`. In-process runs use `llmstep.py`.
+Server runs use `servestep.py`. It starts the server on a free loopback port and points the sampler at
+the server pid. It waits for `/v1/models`, sends an 8-token warmup, then streams one completion with the
+same prompt and length. TTFT and token times come from the stream. Token counts come from the server's
+`usage` when it reports them. The server's process group is always stopped afterward.
+
+The `coreglass compare` command turns 2 to 4 of those results (from one run or several) into one
+shareable frame, with `compare.json` and `compare.md` for LLM readers.
+
+Each run writes `captures/<host>-<UTC>.jsonl` and `<same>.run.json` (`coreglass/run/v1`). The manifest
+holds the host entry, preflight, any blockers overridden, per-step label, command, exit code, wall and
+capture times, output tails, and the Coreglass commit.
+
+The `coreglass live <any> --replay <capture> --speed N` command plays a capture through the dashboard,
+marks included.
+
+Verified 2026-10-02 from an x86_64 viewer against an M1, an M1 Max, and an M2 Max laptop. The viewer
+itself also ran on the M1 (aarch64, Python 3.14, Chromium PNG export).
 
 ## Per-core GPU and ANE data: why not yet, and how (implementation spec)
 
 This section is the brief for driver work. Coreglass already consumes the interface in
-"Producer contract" below; when a driver exports it, the dashboard and frames switch from the IRQ
-proxy to measured busy time with no Coreglass change.
+"Producer contract" below. When a driver exports it, the dashboard and frames switch from the IRQ proxy
+to measured busy time with no Coreglass change.
 
 ### Why the data is missing today
 
 Neither driver exports busy time. Measured on an M1 Max (2026-10-02):
 
-- The linux-aurora GPU driver has no fdinfo `drm-engine-*` or `drm-cycles` keys. Its debugfs has only `clients`,
-  `gem_names`, and `name`. Runtime PM reports `unsupported` for the GPU device.
-- The ANE device (`/sys/class/accel/accel0`) stays runtime-PM `active` all the time, and its genpd
-  domains (`ane_sys`, `ane_set0`..`ane_set5`) stay on, so neither shows work.
-- The only live engine signal is the GPU firmware mailbox interrupt rate (`<gpu base + 0x8000>.mbox-recv`
-  in `/proc/interrupts`). It rises 6x under an MLX matmul, but it is an activity proxy, not busy time.
+The linux-aurora GPU driver has no fdinfo `drm-engine-*` or `drm-cycles` keys. Its debugfs has only
+`clients`, `gem_names`, and `name`. Runtime PM reports `unsupported` for the GPU device.
+
+The ANE device (`/sys/class/accel/accel0`) stays runtime-PM `active` all the time. Its genpd domains
+(`ane_sys`, `ane_set0`..`ane_set5`) stay on. Neither shows work.
+
+The only live engine signal is the GPU firmware mailbox interrupt rate
+(`<gpu base + 0x8000>.mbox-recv` in `/proc/interrupts`). It rises 6x under an MLX matmul. It is an
+activity proxy, not busy time.
 
 ### GPU, cheapest first
 
-1. **Firmware stats → device busy time (do first).** The AGX firmware already sends `Utilization`
+1. Firmware stats → device busy time (do first). The AGX firmware already sends `Utilization`
    (`util1`..`util4`), `PowerState` (`pstate`, `active`, `poweroff`), `PowerOn`/`PowerOff`
    (`on_time`/`off_time`), `FwBusy` (`busy`), `AvgPower`, and `Temperature` messages. The linux-aurora GPU
    driver decodes them and only debug-logs them: `StatsChannel::poll` in the driver's `channel.rs`, message
@@ -259,24 +278,24 @@ Neither driver exports busy time. Measured on an M1 Max (2026-10-02):
    parameter. Work: keep the latest values and cumulative counters in the device, export them per the
    producer contract, and validate field meaning against a controlled MLX load. Kernel work lands in
    linux-aurora (aurora-silicon/linux, base `aurora-wip`).
-2. **Per-core work assignment.** Mesa (joshuaswarren/mesa-1) lowers `load_core_id` to `AGX_SR_CORE_ID`
+2. Per-core work assignment. Mesa (joshuaswarren/mesa-1) lowers `load_core_id` to `AGX_SR_CORE_ID`
    (in the compiler's `agx_compile.c`, `agx_opcodes.py` special register 20). An instrumented MLX kernel
    can count workgroups per core, bracketed by Vulkan timestamp queries. Honeykrisp disables
    `VK_KHR_shader_clock` (`hk_physical_device.c`), so per-workgroup intervals need a proven clock source
    first. This measures assignment, not idle time.
-3. **Hardware counters.** True per-core occupancy needs the AGX performance counter blocks. No public map
+3. Hardware counters. True per-core occupancy needs the AGX performance counter blocks. No public map
    exists. Route: macOS Metal counter sets (`MTLCounterSet`) captured next to an m1n1 hypervisor trace.
 
 ### ANE, cheapest first
 
-1. **Per-submission timeline (do first).** In omarchy-ane, `ane_submit` (`ane/src/ane_drv.c`) is
-   synchronous behind `engine_lock`; `ane_tm.c` reads the TM event timestamp (`TM_IRQ_TMST`) and discards
-   it. Work: a preallocated ring with submit, TM push, completion, the TM timestamp, task count, and result,
+1. Per-submission timeline (do first). In omarchy-ane, `ane_submit` (`ane/src/ane_drv.c`) is
+   synchronous behind `engine_lock`. The `ane_tm.c` code reads the TM event timestamp (`TM_IRQ_TMST`) and
+   discards it. Work: a preallocated ring with submit, TM push, completion, the TM timestamp, task count, and result,
    plus the cumulative counters in the producer contract. No allocation or formatting in the hot path.
    M2 (T6021) uses the firmware/RTKit path and needs the same counters from its CSNE command path.
-2. **Per-task counters.** Public RE notes claim 24 per-task-descriptor counters behind an enable flag.
+2. Per-task counters. Public RE notes claim 24 per-task-descriptor counters behind an enable flag.
    Unverified. Validate on macOS before porting.
-3. **Per-NE-core data.** No evidence yet. HWX descriptors carry no core mask, so per-core occupancy
+3. Per-NE-core data. No evidence yet. HWX descriptors carry no core mask, so per-core occupancy
    cannot be inferred from task shapes and timing.
 
 ### Producer contract
@@ -299,19 +318,19 @@ through. Coreglass reads these keys:
 | `power_mw` | gauge | firmware average power in milliwatts, if the firmware reports it |
 | `util1` .. `util4` | gauge | raw firmware `Utilization` fields, unscaled, until their meaning is validated |
 
-Cumulative counters never reset while the device is bound, so a reader at any rate computes
+Cumulative counters never reset while the device is bound. A reader at any rate computes
 `busy = Δbusy_ns / Δt` and `jobs/s = Δjobs / Δt` without missing work between reads. The ring-buffer
 timeline for item 1 of each engine goes in debugfs (`agx_timeline`, `ane_timeline`, lines
-`seq submit_ns start_ns end_ns tasks rc`) for per-submission views; the sysfs file is what the live
+`seq submit_ns start_ns end_ns tasks rc`) for per-submission views. The sysfs file is what the live
 sampler polls at 10 Hz.
 
 Acceptance for each producer:
 
-1. The file exists, is readable without root, and matches the format above. `coreglass hosts` lists it
-   under `stats` (`agx_stats`, `ane_stats`).
-2. Under `coreglass run <host>` (built-in probe; set `ane_cmd` for the ANE step), then
-   `coreglass phases captures/<file>.jsonl`: `gpu_busy` (or `ane_busy`) ≥ 0.9 in the matmul (or ANE
-   encoder) phase and ≤ 0.05 in the idle phase.
+1. The file exists, is readable without root, and matches the format above. The `coreglass hosts`
+   command lists it under `stats` (`agx_stats`, `ane_stats`).
+2. Run `coreglass run <host>` with the built-in probe (set `ane_cmd` for the ANE step). Then run
+   `coreglass phases captures/<file>.jsonl`. `gpu_busy` (or `ane_busy`) reads ≥ 0.9 in the matmul (or
+   ANE encoder) phase and ≤ 0.05 in the idle phase.
 3. `busy_ns` advances by no more than wall time per tick, and `jobs` matches the submissions the workload
    made (± 1).
 4. Reads add no measurable overhead to a decode benchmark (same tok/s within run-to-run noise).
@@ -349,23 +368,32 @@ python3 -m coreglass build fixtures/apple-silicon-linux-2026-10-02.json bundles/
 
 ### Next adapters (not built)
 
-- `omarchy-mlx/scripts/collect_deep.py` archives (`schema_version` 1; sections `quick`,
-  `environment`, `correctness`, `benchmark`, `profile`, and start/end `thermal`):
-  `benchmark.matmul[].tflops` gives a compute ceiling; `thermal` fills the thermal gap.
-- `AneSpeed/<run>/freq-*.tsv`: CPU cluster clocks during ANE runs, for the idle-state ablations.
-- The HostProfile `perf` reports (`report-dso.txt`, `report-sym.txt`): host time by library.
-- A macOS side of each paired run, parsed from its own receipt instead of `--ane-macos-ms`.
+The `omarchy-mlx/scripts/collect_deep.py` archives (`schema_version` 1; sections `quick`,
+`environment`, `correctness`, `benchmark`, `profile`, and start/end `thermal`) plug in. The
+`benchmark.matmul[].tflops` value gives a compute ceiling. The `thermal` section fills the thermal gap.
+
+The `AneSpeed/<run>/freq-*.tsv` files hold CPU cluster clocks during ANE runs, for the idle-state
+ablations.
+
+The HostProfile `perf` reports (`report-dso.txt`, `report-sym.txt`) hold host time by library.
+
+The last one is a macOS side of each paired run, parsed from its own receipt instead of
+`--ane-macos-ms`.
 
 ## Shareable output
 
-- `--png --scale 2` writes 3200×1800 PNG files through headless Chrome.
-- `--anonymize` removes host names, kernel strings, and capture file names from every frame and summary.
-- In the page: `←`/`→` change the frame, `p` saves a 2× PNG, `s` saves the SVG,
-  `w` shows all frames in one column. "Copy LLM summary" copies the Markdown summary.
-- The frame IDs are URL fragments (`index.html#gaps`), so a link opens one frame.
+The `--png --scale 2` flags write 3200×1800 PNG files through headless Chrome.
+
+The `--anonymize` flag removes host names, kernel strings, and capture file names from every frame and
+summary.
+
+In the page, `←`/`→` change the frame, `p` saves a 2× PNG, `s` saves the SVG, and `w` shows all frames
+in one column. "Copy LLM summary" copies the Markdown summary.
+
+The frame IDs are URL fragments (`index.html#gaps`), so a link opens one frame.
 
 ## Privacy
 
 The repository is public. Targets live in the user's `~/.config/coreglass/hosts.toml`, and lab
-receipts stay wherever `--root` points. `bundles/local/`, `captures/`, and `out/` are git-ignored,
-because they hold host names and measured data. Committed images are built with `--anonymize`.
+receipts stay wherever `--root` points. The `bundles/local/`, `captures/`, and `out/` directories are git-ignored, because they hold host
+names and measured data. Committed images are built with `--anonymize`.
