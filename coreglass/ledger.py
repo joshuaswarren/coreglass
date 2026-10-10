@@ -433,11 +433,15 @@ def parity(rows, cfg):
     refs = {r["date"]: r for r in rows if r["os"] == "macos" and not r.get("contaminated")}
     if not refs:
         return []
-    out = ["", "## Linux as a percentage of the macOS reference", "",
-           "The reference is upstream MLX and mlx-lm on macOS on " + ", ".join(sorted({r["chip"] for r in refs.values()}))
-           + ". It is a different chip from the Linux Macs, so the percentage is a fixed yardstick, not parity on equal "
-           "hardware. The reference Mac also serves live models, so its row uses the best of its reps (the highest "
-           "rate, the lowest TTFT) when `stat = \"best\"`: contention only ever slows a rep.", "",
+    out = ["", "## Linux as a percentage of the macOS reference (retired)", "",
+           "Retired 2026-10-10: the daily run no longer measures the macOS reference. Its Mac serves live models, so no row since "
+           "2026-10-05 was clean (the GPU was 98-100% busy), and a different chip is a poor yardstick anyway. The reference is now "
+           "scoreboard v2 in omarchy-mlx (README, \"How close to macOS\"): the same Mac measured on Linux and on macOS, one row per "
+           "model. The rows below are history and stay.", "",
+           "The old reference was upstream MLX and mlx-lm on macOS on " + ", ".join(sorted({r["chip"] for r in refs.values()}))
+           + ". It is a different chip from the Linux Macs, so the percentage was a fixed yardstick, not parity on equal "
+           "hardware. Its row used the best of its reps (the highest rate, the lowest TTFT) when `stat = \"best\"`: contention "
+           "only ever slows a rep.", "",
            "| Date | Mac | Stack | " + " | ".join(names) + " |", "|" + "---|" * (3 + len(names))]
     for r in rows:
         ref = refs.get(r["date"])
