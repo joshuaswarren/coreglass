@@ -75,9 +75,11 @@ Each cell starts a fresh server per variant, alternating the order across pairs,
 | 2026-10-06 | M1 · T8103 | oMLX server · 2B · conv-fuse 0006 | 9/10 | 1,408 → 1,376 (+2.2%) | 29.1 → 29.7 (+1.9%) | 42.9 → 43.5 (+1.4%) | 18.1 → 18.3 (+1.0%) | 5.25 → 5.30 (+1.0%) | same off and on |
 | 2026-10-06 (late) | M1 Max · T6001 | oMLX server · 2B · conv-fuse 0006 | 9/10 | 610 → 607 (+0.5%) | 60.2 → 62.0 (+3.0%) | 84.3 → 87.9 (+4.3%) | 57.6 → 58.4 (+1.5%) | 17.1 → 17.4 (+2.1%) | same off and on |
 
-## Linux as a percentage of the macOS reference
+## Linux as a percentage of the macOS reference (retired)
 
-The reference is upstream MLX and mlx-lm on macOS on M1 Ultra. It is a different chip from the Linux Macs, so the percentage is a fixed yardstick, not parity on equal hardware. The reference Mac also serves live models, so its row uses the best of its reps (the highest rate, the lowest TTFT) when `stat = "best"`: contention only ever slows a rep.
+Retired 2026-10-10: the daily run no longer measures the macOS reference. Its Mac serves live models, so no row since 2026-10-05 was clean (the GPU was 98-100% busy), and a different chip is a poor yardstick anyway. The reference is now scoreboard v2 in omarchy-mlx (README, "How close to macOS"): the same Mac measured on Linux and on macOS, one row per model. The rows below are history and stay.
+
+The old reference was upstream MLX and mlx-lm on macOS on M1 Ultra. It is a different chip from the Linux Macs, so the percentage was a fixed yardstick, not parity on equal hardware. Its row used the best of its reps (the highest rate, the lowest TTFT) when `stat = "best"`: contention only ever slows a rep.
 
 | Date | Mac | Stack | Qwen3.8-2B 4-bit · mlx-lm · prefill tok/s | Qwen3.8-2B 4-bit · mlx-lm · decode tok/s | Qwen3.8-2B 4-bit · oMLX · prefill tok/s | Qwen3.8-2B 4-bit · oMLX · decode tok/s | Qwen3-4B 4-bit · mlx-lm · prefill tok/s | Qwen3-4B 4-bit · mlx-lm · decode tok/s | Qwen3-4B 4-bit · oMLX · prefill tok/s | Qwen3-4B 4-bit · oMLX · decode tok/s |
 |---|---|---|---|---|---|---|---|---|---|---|
