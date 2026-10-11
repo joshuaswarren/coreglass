@@ -78,7 +78,7 @@ key by key. Other keys are replaced.
 | `queues[]` | `id, component, label, observed_ms, budget_ms` | hero, flow |
 | `limits[]` | `label, value, limit, unit, status` | gaps |
 | `power[]` | `label, series[[t_s, W]], unit, metric, host` | gaps |
-| `capture` | host, chip, model, src, kernel, per-core rows, marks, token times, power series, `run` phases (written by `ingest.capture` from a live capture) | hero, util, time, capture, summary |
+| `capture` | host, model, kernel, hz, seconds, n, per-core rows, stats, clocks, max_ghz, marks, `run` phases, prov, src (written by `ingest.capture` from a live capture; its power series goes to the top-level `power[]`) | hero, util, capture, summary |
 | `sources[]` | strings: the receipt path or citation behind each input | summary |
 | `not_captured[]` | strings (a plain list: a later bundle replaces the whole list) | gaps, summary |
 
