@@ -114,8 +114,7 @@ or mark captures with `space` and press `c`.
 
 `coreglass ingest-lab --root <artifacts dir>` parses lab-notebook artifacts into a measured `coreglass/v1` bundle. It
 writes `bundles/local/lab.json` by default (`-o -` for stdout). `coreglass build` then merges it with the reference.
-[docs/DESIGN.md](docs/DESIGN.md) lists the receipt formats and the per-parser flags (`--host-profile`, `--gemv`,
-`--ane`).
+[docs/DESIGN.md](docs/DESIGN.md) lists the receipt formats.
 
 ## Output
 
