@@ -41,6 +41,8 @@ overlay = "mlx-lm-series-main/lib/python3.14/site-packages"
 [[targets]]               # hosts.toml names; chips come from each host's `chip`
 host = "m2max"
 # cool_s = 60              # optional: idle seconds before each timed rep, for a chip that throttles under continuous GPU load
+# quiet_set = "lab-guard hold m2max"    # optional shell commands: reserve the Mac before each rep, release it after
+# quiet_clear = "lab-guard release m2max"   # (also when the rep fails); a lab that shares the Mac stops other GPU jobs
 
 [reference]               # optional: upstream MLX on macOS, measured over SSH without the sampler
 ssh = "me@mac"

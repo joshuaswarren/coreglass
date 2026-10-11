@@ -12,10 +12,12 @@ import json
 import re
 import shlex
 import statistics
+import subprocess
 import threading
 import time
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -127,6 +129,22 @@ def baseline_for(cfg, target):
     return target.get("cool_s", cfg.get("baseline_s", 4))
 
 
+@contextmanager
+def quiet_window(target, log):
+    """Reserve a target for one rep. A target's `quiet_set` shell command runs before the rep (a lab that shares the
+    Mac stops new jobs there and waits for the running one) and `quiet_clear` after it, also when the rep fails. A
+    failed `quiet_set` is logged and the rep still runs: the idle-power gate then rejects a contaminated rep."""
+    start, stop = target.get("quiet_set"), target.get("quiet_clear")
+    if start:
+        r = subprocess.run(start, shell=True, capture_output=True, text=True, timeout=2400, check=False)
+        log(f"{target['host']} quiet window set rc {r.returncode}: {(r.stdout or r.stderr).strip()[-120:]}")
+    try:
+        yield
+    finally:
+        if stop:
+            subprocess.run(stop, shell=True, capture_output=True, text=True, timeout=120, check=False)
+
+
 def measure_linux(cfg, target, stack, log):
     host = remote.resolve(target["host"])
     base = target.get("base", cfg["base"])
@@ -147,8 +165,9 @@ def measure_linux(cfg, target, stack, log):
         stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
         record = str(CAPTURES / f"ledger-{host['name']}-{stack['label']}-{stamp}.jsonl")
         try:  # each rep is one gpu_turn ticket whose command is the GPU work itself
-            remote.run_cmd(target["host"], [], [], True, 10, None, False, False, baseline_for(cfg, target), 2, 10,
-                           record, log=log, wait=remote_wait(cfg), overrides=over)
+            with quiet_window(target, log):
+                remote.run_cmd(target["host"], [], [], True, 10, None, False, False, baseline_for(cfg, target), 2, 10,
+                               record, log=log, wait=remote_wait(cfg), overrides=over)
         except SystemExit as e:
             log(f"{host['name']} {stack['label']} attempt {i + 1}: {e}")
             continue
