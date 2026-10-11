@@ -90,6 +90,10 @@ It then rewrites [docs/LEDGER.md](docs/LEDGER.md), one row per Mac, stack, and d
 Each cell shows the change against the previous day and against the best day.
 Any regression over 1% is listed with the commit range that could explain it.
 Copy [ledger.example.toml](ledger.example.toml) to `~/.config/coreglass/ledger.toml` to define the suite.
+`coreglass ledger run --only HOST`, `--stack LABEL` and `--no-reference` scope a run. `coreglass ledger mark <date>
+<chip> <stack> <reason>` flags one row as contaminated. `coreglass ledger add <host> <stack> <captures>` merges a row
+from finished captures that a run never merged. `coreglass ledger render` rewrites docs/LEDGER.md from
+docs/ledger.json.
 
 ## Comparison frames
 
@@ -105,6 +109,13 @@ shows decode, time to first token, prefill, energy per token, and host CPU per t
 marks the winner and each variant's change against the first one. One request per variant cannot show run-to-run
 noise, so a decode gap under 3% reads "no clear difference". In the app, press `c` on a run with several engines,
 or mark captures with `space` and press `c`.
+
+## Lab receipts
+
+`coreglass ingest-lab --root <artifacts dir>` parses lab-notebook artifacts into a measured `coreglass/v1` bundle. It
+writes `bundles/local/lab.json` by default (`-o -` for stdout). `coreglass build` then merges it with the reference.
+[docs/DESIGN.md](docs/DESIGN.md) lists the receipt formats and the per-parser flags (`--host-profile`, `--gemv`,
+`--ane`).
 
 ## Output
 
