@@ -223,7 +223,7 @@ class Remote(unittest.TestCase):
             with ledger.quiet_window(target, seen.append, set_timeout=1):
                 seen.append("rep")
             self.assertEqual(log.read_text().split(), ["clear"])
-            self.assertEqual(seen[-1], "rep")
+            self.assertEqual(seen[1], "rep")
             self.assertIn("quiet_set failed: TimeoutExpired", seen[0])
 
     def test_ledger_day_says_when_the_reference_row_has_fewer_reps(self):
