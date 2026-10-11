@@ -129,20 +129,30 @@ def baseline_for(cfg, target):
     return target.get("cool_s", cfg.get("baseline_s", 4))
 
 
-@contextmanager
-def quiet_window(target, log):
-    """Reserve a target for one rep. A target's `quiet_set` shell command runs before the rep (a lab that shares the
-    Mac stops new jobs there and waits for the running one) and `quiet_clear` after it, also when the rep fails. A
-    failed `quiet_set` is logged and the rep still runs: the idle-power gate then rejects a contaminated rep."""
-    start, stop = target.get("quiet_set"), target.get("quiet_clear")
-    if start:
-        r = subprocess.run(start, shell=True, capture_output=True, text=True, timeout=2400, check=False)
-        log(f"{target['host']} quiet window set rc {r.returncode}: {(r.stdout or r.stderr).strip()[-120:]}")
+def quiet_command(target, log, key, timeout):
+    """Run the target's `key` shell command. A timeout, a missing shell or a non-zero exit is logged and never raised:
+    a reservation that fails must not stop the rep or the daily run."""
+    cmd = target.get(key)
+    if not cmd:
+        return
     try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout, check=False)
+        log(f"{target['host']} {key} rc {r.returncode}: {(r.stdout or r.stderr).strip()[-120:]}")
+    except (subprocess.TimeoutExpired, OSError) as e:
+        log(f"{target['host']} {key} failed: {type(e).__name__}")
+
+
+@contextmanager
+def quiet_window(target, log, set_timeout=2400, clear_timeout=120):
+    """Reserve a target for one rep. A target's `quiet_set` shell command runs before the rep (a lab that shares the
+    Mac stops new jobs there and waits for the running one) and `quiet_clear` after it, also when the rep fails or
+    `quiet_set` times out. A failed `quiet_set` is logged and the rep still runs: the idle-power gate then rejects a
+    contaminated rep."""
+    try:
+        quiet_command(target, log, "quiet_set", set_timeout)
         yield
     finally:
-        if stop:
-            subprocess.run(stop, shell=True, capture_output=True, text=True, timeout=120, check=False)
+        quiet_command(target, log, "quiet_clear", clear_timeout)
 
 
 def measure_linux(cfg, target, stack, log):
