@@ -12,10 +12,12 @@ import json
 import re
 import shlex
 import statistics
+import subprocess
 import threading
 import time
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -127,6 +129,32 @@ def baseline_for(cfg, target):
     return target.get("cool_s", cfg.get("baseline_s", 4))
 
 
+def quiet_command(target, log, key, timeout):
+    """Run the target's `key` shell command. A timeout, a missing shell or a non-zero exit is logged and never raised:
+    a reservation that fails must not stop the rep or the daily run."""
+    cmd = target.get(key)
+    if not cmd:
+        return
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout, check=False)
+        log(f"{target['host']} {key} rc {r.returncode}: {(r.stdout or r.stderr).strip()[-120:]}")
+    except (subprocess.TimeoutExpired, OSError) as e:
+        log(f"{target['host']} {key} failed: {type(e).__name__}")
+
+
+@contextmanager
+def quiet_window(target, log, set_timeout=2400, clear_timeout=120):
+    """Reserve a target for one rep. A target's `quiet_set` shell command runs before the rep (a lab that shares the
+    Mac stops new jobs there and waits for the running one) and `quiet_clear` after it, also when the rep fails or
+    `quiet_set` times out. A failed `quiet_set` is logged and the rep still runs: the idle-power gate then rejects a
+    contaminated rep."""
+    try:
+        quiet_command(target, log, "quiet_set", set_timeout)
+        yield
+    finally:
+        quiet_command(target, log, "quiet_clear", clear_timeout)
+
+
 def measure_linux(cfg, target, stack, log):
     host = remote.resolve(target["host"])
     base = target.get("base", cfg["base"])
@@ -147,8 +175,9 @@ def measure_linux(cfg, target, stack, log):
         stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
         record = str(CAPTURES / f"ledger-{host['name']}-{stack['label']}-{stamp}.jsonl")
         try:  # each rep is one gpu_turn ticket whose command is the GPU work itself
-            remote.run_cmd(target["host"], [], [], True, 10, None, False, False, baseline_for(cfg, target), 2, 10,
-                           record, log=log, wait=remote_wait(cfg), overrides=over)
+            with quiet_window(target, log):
+                remote.run_cmd(target["host"], [], [], True, 10, None, False, False, baseline_for(cfg, target), 2, 10,
+                               record, log=log, wait=remote_wait(cfg), overrides=over)
         except SystemExit as e:
             log(f"{host['name']} {stack['label']} attempt {i + 1}: {e}")
             continue

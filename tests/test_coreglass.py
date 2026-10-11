@@ -204,6 +204,28 @@ class Remote(unittest.TestCase):
         self.assertEqual(ledger.baseline_for({"baseline_s": 4}, {"host": "m2", "cool_s": 60}), 60)
         self.assertEqual(ledger.baseline_for({}, {"host": "m1"}), 4)
 
+    def test_ledger_quiet_window_clears_the_host_after_a_failed_rep_and_skips_unset_targets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "order"
+            target = {"host": "m2", "quiet_set": f"echo set >> {log}", "quiet_clear": f"echo clear >> {log}"}
+            with self.assertRaises(SystemExit), ledger.quiet_window(target, lambda m: None):
+                raise SystemExit("rep failed")
+            self.assertEqual(log.read_text().split(), ["set", "clear"])
+            with ledger.quiet_window({"host": "m1"}, lambda m: None):
+                pass
+            self.assertEqual(log.read_text().split(), ["set", "clear"])
+
+    def test_ledger_quiet_window_runs_the_rep_and_the_release_when_the_reservation_times_out(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "order"
+            target = {"host": "m2", "quiet_set": "sleep 5", "quiet_clear": f"echo clear >> {log}"}
+            seen = []
+            with ledger.quiet_window(target, seen.append, set_timeout=1):
+                seen.append("rep")
+            self.assertEqual(log.read_text().split(), ["clear"])
+            self.assertEqual(seen[1], "rep")
+            self.assertIn("quiet_set failed: TimeoutExpired", seen[0])
+
     def test_ledger_day_says_when_the_reference_row_has_fewer_reps(self):
         ref = {"date": "2026-10-07", "reps": 2, "skipped_busy": [98, 99, 98]}
         self.assertEqual(ledger.day(ref), "2026-10-07 (2 of 5 reps: GPU busy)")
