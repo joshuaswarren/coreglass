@@ -1,7 +1,7 @@
 # Coreglass design
 
 Coreglass shows where local inference loses speed on Apple Silicon under Linux.
-It reads performance receipts, ranks the levers, and renders six frames.
+It reads performance receipts, ranks the levers, and renders six frames, plus a seventh from a live capture.
 A human opens one HTML file. An LLM reads one JSON summary.
 
 ## Goals
@@ -44,6 +44,9 @@ flowchart LR
   G[coreglass app: window + local HTTP API] -->|drives| T
   G -->|build| M
   T[target host: sampler.py over SSH] -->|coreglass live| D[live dashboard, SSE]
+  Z[coreglass ledger run: one frozen suite per day] -->|coreglass run per rep| T
+  Z -->|merge each row| J[docs/ledger.json]
+  J -->|coreglass ledger render| Y[docs/LEDGER.md]
   T -->|coreglass live| C[captures/*.jsonl]
   C -->|ingest.capture| M
   L --> M[model.load: merge + provenance check]
@@ -75,7 +78,9 @@ key by key. Other keys are replaced.
 | `queues[]` | `id, component, label, observed_ms, budget_ms` | hero, flow |
 | `limits[]` | `label, value, limit, unit, status` | gaps |
 | `power[]` | `label, series[[t_s, W]], unit, metric, host` | gaps |
-| `not_captured[]` | strings | gaps, summary |
+| `capture` | host, model, kernel, hz, seconds, n, per-core rows, stats, clocks, max_ghz, marks, `run` phases, prov, src (written by `ingest.capture` from a live capture; its power series goes to the top-level `power[]`) | hero, util, capture, summary |
+| `sources[]` | strings: the receipt path or citation behind each input | summary |
+| `not_captured[]` | strings (a plain list: a later bundle replaces the whole list) | gaps, summary |
 
 `lane` is one of `cpu`, `queue`, `gpu`, `ane`, `sync`, `mem`. The lane sets the color.
 Records that carry numbers also carry `prov` and `src` (a receipt path or a citation).
@@ -97,6 +102,8 @@ smoother the item gets if the gap closes. The list is sorted by factor.
 A `constraint` factor measures harm (for example desktop stutter), not throughput.
 The kind is always shown next to the factor.
 
+`summary.json` is `coreglass/summary/v1`. It holds the host, the ranked findings, the capture's run phases and per-step results as `run`, `not_captured`, `sources`, the bundle digest, and a legend that states each factor rule. `summary.md` is the same ranking as a Markdown table, plus the run phases.
+
 ## Frames
 
 | Frame | Question it answers |
@@ -107,6 +114,7 @@ The kind is always shown next to the factor.
 | `util` | Which cores work and which wait during decode? How does the ANE encoder compare with macOS? |
 | `flow` | How does one token move through host, queue, GPU, and memory? Where does the ANE connect? |
 | `gaps` | What does macOS already prove? What did the knobs do? Which limits bind? What is not captured? |
+| `capture` | What did one live run measure on the target, phase by phase? (added when the build has a capture) |
 
 With a live capture in the build, the `util` and `hero` heatmaps show measured per-core CPU rows. They
 also show the GPU firmware event row. Without one, they are modeled. The decode heatmap then places the
@@ -120,6 +128,8 @@ Linux and macOS latencies. Per-core variation in a modeled heatmap appears only 
 python3 -m coreglass live m2max                   # dashboard at http://127.0.0.1:8777/
 python3 -m coreglass build reference captures/<file>.jsonl -o out/capture --png
 ```
+
+`--headless` records without a dashboard, `--hz` sets the sample rate (default 10), `--seconds` stops the stream, and the target can be `local` to sample the viewer itself.
 
 The `coreglass live` command sends `sampler.py` over SSH (`python3 -u -`), so the target needs only
 Python 3 and no install. The sampler is read-only and needs no root. It prints one JSON line per tick:
@@ -173,7 +183,7 @@ token. Workload CPU time was 14.4 ms per token.
 
 ## The app
 
-`coreglass` with no arguments runs `app.App`. It is a local standard-library HTTP server and one
+`coreglass` with no arguments runs the app server (`app.run`). It is a local standard-library HTTP server and one
 page of plain JavaScript (`apppage.py`), with no build step. The window opens through
 `omarchy-launch-webapp`, then `chromium --app`, then the default browser.
 The `coreglass install` command writes a `.desktop` entry and the icon, so the app shows in the
@@ -184,8 +194,10 @@ launcher.
 | `GET /api/state` | mode (idle, live, run, replay), target, capture, log tail |
 | `GET /api/hosts`, `/api/captures`, `/api/phases?name=` | target preflight, capture list, per-phase means |
 | `GET /live?embed=1` | the live canvas, fed by the same hub as `coreglass live` |
+| `GET /events` | the SSE stream that feeds both dashboards |
 | `POST /api/live`, `/api/run`, `/api/replay`, `/api/stop` | start or stop one session at a time |
 | `POST /api/build`, `/api/theme` | build frames for a capture; switch theme |
+| `POST /api/compare` | share a comparison frame (marked captures, or this run's engines) |
 
 Captures and built frames go to `$XDG_DATA_HOME/coreglass/{captures,out}`. The theme choice goes to
 `~/.config/coreglass/app.json`. `synthwave` is the default look. The `omarchy` look reads the active
@@ -218,7 +230,7 @@ as no blocker remains. At the deadline the run checks once more and refuses. On 
 held lock does not block. The run submits one ticket to that FIFO wrapper (`<gpu_turn> -- bash -s`). Its
 command is the GPU work itself: a short quiet baseline followed by every GPU step with start/end markers.
 The capture starts when the ticket does. Marks follow the markers. The lock is free the moment the script
-ends. CPU steps run after the ticket, outside the lock. Inside the ticket, CPU load does not block. The
+ends. CPU steps run after the ticket, outside the lock, unless the host sets `cpu_steps = false`. Inside the ticket, CPU load does not block. The
 manifest records load1. The run then starts a capture and waits an idle baseline. It runs each step over
 SSH with a host's `env` exported first (for example `VK_DRIVER_FILES`, which pins the Vulkan driver MLX
 loads), with a mark before and after. Outside a turn, `--gpu-step` wraps the command in
@@ -234,6 +246,8 @@ Server runs use `servestep.py`. It starts the server on a free loopback port and
 the server pid. It waits for `/v1/models`, sends an 8-token warmup, then streams one completion with the
 same prompt and length. TTFT and token times come from the stream. Token counts come from the server's
 `usage` when it reports them. The server's process group is always stopped afterward.
+
+The `coreglass run --set KEY=VALUE` flag overrides one `hosts.toml` key for that run. The value reads as TOML when it parses as TOML (`llm_prompt_tokens=8192`, `env={VK_DRIVER_FILES="/x.json"}`), and as a plain string otherwise.
 
 The `coreglass compare` command turns 2 to 4 of those results (from one run or several) into one
 shareable frame, with `compare.json` and `compare.md` for LLM readers.
