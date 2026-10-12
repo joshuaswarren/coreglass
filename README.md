@@ -54,7 +54,7 @@ coreglass build reference captures/<capture>.jsonl -o out/x --png   # reference 
 coreglass live x --replay captures/<capture>.jsonl --speed 4   # play a capture back
 ```
 
-`coreglass run` refuses a busy target. Busy means a held GPU lock, load above 0.5, or a running benchmark.
+`coreglass run` refuses a busy target. Busy means a held GPU lock, load1 at or above 0.5, or a running benchmark.
 For a run with nobody at the keyboard, add `--headless --wait 3h`. It waits until the target is free, then runs.
 Add your own steps with `--step 'LABEL=CMD'`. A `--gpu-step` runs under the host GPU lock.
 Each run writes the capture and a `.run.json` manifest. The manifest holds step times, exit codes, and preflight state.
@@ -90,10 +90,34 @@ It then rewrites [docs/LEDGER.md](docs/LEDGER.md), one row per Mac, stack, and d
 Each cell shows the change against the previous day and against the best day.
 Any regression over 1% is listed with the commit range that could explain it.
 Copy [ledger.example.toml](ledger.example.toml) to `~/.config/coreglass/ledger.toml` to define the suite.
-`coreglass ledger run --only HOST`, `--stack LABEL` and `--no-reference` scope a run. `coreglass ledger mark <date>
-<chip> <stack> <reason>` flags one row as contaminated. `coreglass ledger add <host> <stack> <captures>` merges a row
-from finished captures that a run never merged. `coreglass ledger render` rewrites docs/LEDGER.md from
-docs/ledger.json.
+
+A row names the mlx wheel and the Vulkan driver it measured. The REGRESSION column lists the
+metrics where main trails the same Mac's release stack. The CORRECTNESS column shows each check's greedy token
+digest; main must match release, and every rep must agree. Each metric cell holds the median, then the change
+against the previous day and the best earlier day.
+A contaminated row is one another workload shared, or one whose GPU never went quiet. It stays on the page,
+flagged, and is never a baseline or a reference. `coreglass ledger mark` flags one by hand.
+
+A lab that shares a Mac can reserve it for one rep. Set `quiet_set` and `quiet_clear` on the target (see
+[ledger.example.toml](ledger.example.toml)):
+
+```toml
+quiet_set = "lab-guard hold m2max"      # other GPU jobs on that Mac wait while the rep measures
+quiet_clear = "lab-guard release m2max" # the Mac is released after the rep, also when the rep fails
+```
+
+`quiet_set` runs before each rep and `quiet_clear` after it, also when the rep fails or `quiet_set` times out.
+A failed `quiet_set` is logged and the rep still runs; the idle-power gate then rejects a rep that ran on a busy
+machine.
+
+`coreglass ledger run --only HOST`, `--stack LABEL`, and `--no-reference` scope a run. `--cells-only` runs just
+the server cells (`[[cells]]` in ledger.toml: A/B runs of one environment switch on a live server). `--late` marks
+rows measured after the day's 10:00 UTC run. `coreglass ledger mark <date> <chip> <stack> <reason>` flags one row
+as contaminated. `coreglass ledger add <host> <stack> <captures>` merges a row from finished captures that a run
+never merged. `coreglass ledger render` rewrites docs/LEDGER.md from docs/ledger.json.
+
+The macOS reference comparison is retired. The reference Mac serves live models, so its rows came back
+contaminated. docs/LEDGER.md keeps the old percentage table as history.
 
 ## Comparison frames
 
