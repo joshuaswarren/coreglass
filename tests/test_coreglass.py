@@ -3,6 +3,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from unittest import mock
 
 from coreglass import build, cells, compare, ingest, ledger, model, remote, sampler, theme, views
 
@@ -225,6 +226,21 @@ class Remote(unittest.TestCase):
             self.assertEqual(log.read_text().split(), ["clear"])
             self.assertEqual(seen[1], "rep")
             self.assertIn("quiet_set failed: TimeoutExpired", seen[0])
+
+    def test_ledger_run_with_stacks_measures_those_stacks_and_no_cells_else_the_cells_too(self):
+        cfg = {"stacks": [{"label": "release"}, {"label": "main"}], "cells": [{"label": "cell"}],
+               "targets": [{"host": "m2"}]}
+        seen = []
+        for stacks, want in ((["main"], ["stack main"]), ([], ["stack release", "stack main", "cell cell"])):
+            seen.clear()
+            with mock.patch.object(ledger, "load_config", return_value=cfg), \
+                 mock.patch.object(ledger, "merger", return_value=lambda row: None), \
+                 mock.patch.object(ledger, "load_rows", return_value=[]), \
+                 mock.patch.object(ledger, "summary", return_value=[]), \
+                 mock.patch.object(ledger, "measure_linux", lambda _c, _t, s, _say: seen.append("stack " + s["label"])), \
+                 mock.patch.object(ledger, "measure_cell", lambda _c, _t, cell, _say: seen.append("cell " + cell["label"])):
+                ledger.run_cmd([], False, stacks)
+            self.assertEqual(seen, want)
 
     def test_ledger_day_says_when_the_reference_row_has_fewer_reps(self):
         ref = {"date": "2026-10-07", "reps": 2, "skipped_busy": [98, 99, 98]}
