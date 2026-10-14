@@ -94,6 +94,7 @@ Each cell starts a fresh server per variant, alternating the order across pairs,
 | Date | Mac | Cell | Gated runs | c1 TTFT ms | c1 aggregate tok/s | c1 server decode tok/s | c4 aggregate tok/s | c4 server decode tok/s | Greedy text (c1) |
 |---|---|---|---|---|---|---|---|---|---|
 | 2026-10-14 (late) | M2 Max · T6021 | oMLX server · 2B · conv-fuse 0006 | 10/10 | 340 → 339 (+0.2%) | 74.1 → 76.4 (+3.1%) | 92.8 → 96.0 (+3.4%) | 113 → 116 (+2.7%) | 35.6 → 36.6 (+2.8%) | same off and on |
+| 2026-10-14 (late) | M1 · T8103 | oMLX server · 2B · conv-fuse 0006 | 10/10 | 1,189 → 1,196 (-0.5%) | 30.0 → 30.3 (+0.8%) | 41.7 → 42.3 (+1.4%) | 34.9 → 35.6 (+1.8%) | 11.6 → 11.8 (+2.2%) | same off and on |
 | 2026-10-14 (late) | M1 Max · T6001 | oMLX server · 2B · conv-fuse 0006 | 10/10 | 413 → 410 (+0.6%) | 72.2 → 74.0 (+2.4%) | 94.1 → 97.0 (+3.1%) | 103 → 105 (+2.2%) | 34.0 → 35.2 (+3.7%) | same off and on |
 | 2026-10-13 | M2 Max · T6021 | oMLX server · 2B · conv-fuse 0006 | 10/10 | 334 → 347 (-3.8%) | 73.8 → 77.5 (+4.9%) | 91.6 → 98.0 (+7.0%) | 113 → 117 (+3.5%) | 35.9 → 37.5 (+4.5%) | same off and on |
 | 2026-10-13 | M1 · T8103 | oMLX server · 2B · conv-fuse 0006 | 1/10 | n/a | n/a | n/a | n/a | n/a | same off and on |
