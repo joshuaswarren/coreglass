@@ -7142,5 +7142,93 @@
    ]
   },
   "late": true
+ },
+ {
+  "date": "2026-10-14",
+  "chip": "M1 Max \u00b7 T6001",
+  "os": "linux",
+  "stack": "oMLX server \u00b7 2B \u00b7 conv-fuse 0006",
+  "cell": true,
+  "wheel": "0.32.4.dev202610141007+a2853d5",
+  "driver": "f144c7949b",
+  "driver_info": "Mesa 26.3.0-devel (git-f144c7949b)",
+  "kernel_id": "9073f6d7",
+  "reps": 10,
+  "kernel_warnings": 0,
+  "failed_steps": [],
+  "metrics": {
+   "off \u00b7 c1 server decode tok/s": {
+    "median": 94.1,
+    "min": 93.7,
+    "max": 94.4,
+    "n": 5
+   },
+   "off \u00b7 c1 aggregate tok/s": {
+    "median": 72.19,
+    "min": 71.91,
+    "max": 72.41,
+    "n": 5
+   },
+   "off \u00b7 c1 TTFT ms": {
+    "median": 412.78,
+    "min": 411.43,
+    "max": 414.11,
+    "n": 5
+   },
+   "off \u00b7 c4 aggregate tok/s": {
+    "median": 102.78,
+    "min": 102.38,
+    "max": 103.26,
+    "n": 5
+   },
+   "off \u00b7 c4 server decode tok/s": {
+    "median": 34.0,
+    "min": 33.95,
+    "max": 34.15,
+    "n": 5
+   },
+   "on \u00b7 c1 server decode tok/s": {
+    "median": 97.0,
+    "min": 96.9,
+    "max": 97.6,
+    "n": 5
+   },
+   "on \u00b7 c1 aggregate tok/s": {
+    "median": 73.95,
+    "min": 73.9,
+    "max": 74.34,
+    "n": 5
+   },
+   "on \u00b7 c1 TTFT ms": {
+    "median": 410.43,
+    "min": 409.5,
+    "max": 410.44,
+    "n": 5
+   },
+   "on \u00b7 c4 aggregate tok/s": {
+    "median": 105.07,
+    "min": 104.83,
+    "max": 105.29,
+    "n": 5
+   },
+   "on \u00b7 c4 server decode tok/s": {
+    "median": 35.25,
+    "min": 35.2,
+    "max": 35.25,
+    "n": 5
+   }
+  },
+  "texts": {
+   "off": [
+    "b819a5ece9d2"
+   ],
+   "on": [
+    "b819a5ece9d2"
+   ]
+  },
+  "gated_runs": 10,
+  "runs": 10,
+  "text_parity": true,
+  "late": true
  }
 ]
