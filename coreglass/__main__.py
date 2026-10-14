@@ -150,8 +150,10 @@ def main(argv=None):
     lr = lsub.add_parser("run", help="measure every target and stack, then the macOS reference")
     lr.add_argument("--only", action="append", default=[], metavar="HOST", help="hosts.toml name (repeatable)")
     lr.add_argument("--no-reference", action="store_true", help="skip the macOS reference")
-    lr.add_argument("--stack", action="append", default=[], metavar="LABEL", help="only this stack (repeatable)")
-    lr.add_argument("--cells-only", action="store_true", help="only the server cells ([[cells]] in ledger.toml)")
+    scope = lr.add_mutually_exclusive_group()
+    scope.add_argument("--stack", action="append", default=[], metavar="LABEL",
+                       help="only this stack (repeatable); skips the server cells")
+    scope.add_argument("--cells-only", action="store_true", help="only the server cells ([[cells]] in ledger.toml)")
     lr.add_argument("--late", action="store_true", help="mark rows as measured after the day's 10:00 UTC run")
     lr.set_defaults(fn=lambda a: ledger.run_cmd(a.only, not a.no_reference, a.stack, cells_only=a.cells_only,
                                                 late=a.late))

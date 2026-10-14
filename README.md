@@ -110,8 +110,9 @@ quiet_clear = "lab-guard release m2max" # the Mac is released after the rep, als
 A failed `quiet_set` is logged and the rep still runs; the idle-power gate then rejects a rep that ran on a busy
 machine.
 
-`coreglass ledger run --only HOST`, `--stack LABEL`, and `--no-reference` scope a run. `--cells-only` runs just
-the server cells (`[[cells]]` in ledger.toml: A/B runs of one environment switch on a live server). `--late` marks
+`coreglass ledger run --only HOST` and `--no-reference` scope a run. `--stack LABEL` measures only those stacks and
+skips the server cells. `--cells-only` runs just the server cells (`[[cells]]` in ledger.toml: A/B runs of one
+environment switch on a live server). `--late` marks
 rows measured after the day's 10:00 UTC run. `coreglass ledger mark <date> <chip> <stack> <reason>` flags one row
 as contaminated. `coreglass ledger add <host> <stack> <captures>` merges a row from finished captures that a run
 never merged. `coreglass ledger render` rewrites docs/LEDGER.md from docs/ledger.json.

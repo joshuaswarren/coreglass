@@ -579,7 +579,8 @@ def merger(cfg, date, log=lambda msg: print(msg, flush=True)):
 
 def run_cmd(only, reference, stacks=(), log=lambda msg: print(msg, flush=True), cells_only=False, late=False):
     """Every target and the reference in parallel (each Mac queues on its own GPU), stacks then server cells in order
-    per target. Each finished row is merged into the ledger at once, so a late or failed target never loses others.
+    per target. `stacks` names stacks and skips the cells; `cells_only` skips the stacks. Each finished row is merged
+    into the ledger at once, so a late or failed target never loses others.
     `late` marks rows measured after the day's run (a Mac that was out of service at 10:00 UTC)."""
     cfg = load_config()
     date = ledger_day(datetime.now(timezone.utc))
@@ -591,7 +592,7 @@ def run_cmd(only, reference, stacks=(), log=lambda msg: print(msg, flush=True), 
         for stack in [] if cells_only else cfg["stacks"]:
             if (not stacks or stack["label"] in stacks) and (row := measure_linux(cfg, target, stack, say)):
                 merge(row)
-        for cell in cfg.get("cells", []):
+        for cell in [] if stacks else cfg.get("cells", []):
             if row := measure_cell(cfg, target, cell, say):
                 merge(row)
 
