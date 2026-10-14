@@ -246,9 +246,9 @@ class Remote(unittest.TestCase):
             self.assertEqual(seen, want)
 
     def test_ledger_run_refuses_stack_together_with_cells_only(self):
-        with contextlib.redirect_stderr(io.StringIO()) as err, mock.patch.object(ledger, "run_cmd") as run:
-            with self.assertRaises(SystemExit) as raised:
-                cli.main(["ledger", "run", "--stack", "main", "--cells-only"])
+        with contextlib.redirect_stderr(io.StringIO()) as err, mock.patch.object(ledger, "run_cmd") as run, \
+             self.assertRaises(SystemExit) as raised:
+            cli.main(["ledger", "run", "--stack", "main", "--cells-only"])
         self.assertEqual(raised.exception.code, 2)
         self.assertIn("not allowed with", err.getvalue())
         run.assert_not_called()
