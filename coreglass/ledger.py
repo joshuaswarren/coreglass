@@ -30,6 +30,8 @@ LLM_KEYS = (("prefill_tok_s", "prefill tok/s"), ("ttft_ms", "TTFT ms"), ("decode
 LOWER_IS_BETTER = ("TTFT ms",)
 FLAG_PCT = 1.0
 DAY_START_UTC_H = 10  # the daily run's hour: a rerun before the next 10:00 UTC still belongs to that run's day
+POWER_RAILS = (("System power W", "total system"), ("AC input W", "ac input"), ("Heatpipe W", "heatpipe"))
+POWER_STATE_RATIO = 1.2  # reps whose loaded power differs by more than this factor ran in two power states
 
 
 def ledger_day(t):
@@ -98,9 +100,44 @@ def capture_metrics(capture):
     phases = {p["phase"]: p for p in remote.phases(capture)["phases"]}
     if phases.get("ANE", {}).get("ane_jobs_s"):
         out["ANE jobs/s"] = phases["ANE"]["ane_jobs_s"]
+    out.update(rail_loaded_w(capture))
     idle_w = phases["idle"].get("heatpipe_w") or 0.0
     failed = [s["label"] for s in man["steps"] if s["rc"]]
     return out, sum(len(s["kernel"]) for s in man["steps"]), failed, idle_w, digests
+
+
+def rail_loaded_w(capture):
+    """Record-only SMC power of one rep: for each power rail the sampler found (macsmc_hwmon power1 total system,
+    power2 AC input, power4 heatpipe on an Apple SoC), the mean of the upper half of the whole run's samples. The raw
+    samples stay in the capture. A chip that exposes none of these rails returns {}."""
+    lines = [json.loads(ln) for ln in Path(capture).read_text().splitlines() if ln.strip()]
+    meta = next((m["meta"] for m in lines if "meta" in m), {})
+    samples = [m for m in lines if "cpu" in m]
+    out = {}
+    for name, key in POWER_RAILS:
+        rail = next((r for r in meta.get("rails", []) if key in r.lower()), None)
+        ws = sorted(s["w"][rail] for s in samples if rail in s.get("w", {}))
+        if ws:
+            out[name] = round(statistics.mean(ws[len(ws) // 2:]), 1)
+    return out
+
+
+def power_fields(metrics):
+    """A row's power state from the loaded system power of its reps. Reps more than POWER_STATE_RATIO apart ran in two
+    power states: the row is marked noisy, and it is never a baseline or a regression. A chip with no power rail
+    gets no field."""
+    m = metrics.get("System power W")
+    if not m:
+        return {}
+    if m["min"] > 0 and m["max"] / m["min"] > POWER_STATE_RATIO:
+        text = f"two states {m['min']:g} / {m['max']:g} W"
+        return {"power_state": text, "noisy": text}
+    return {"power_state": f"one state {m['median']:g} W"}
+
+
+def metrics_fields(reps):
+    metrics = summarize(reps)
+    return {"metrics": metrics, **power_fields(metrics)}
 
 
 def digest_sets(dicts):
@@ -195,7 +232,7 @@ def measure_linux(cfg, target, stack, log):
         return None
     return {"chip": host.get("chip", host["name"]), "os": "linux", "stack": stack["label"], **info,
             "ane_workload": ane_workload(host.get("ane_cmd", "")), "reps": len(reps), "rejected_idle_w": rejected,
-            "kernel_warnings": warnings, "failed_steps": sorted(set(failed)), "metrics": summarize(reps),
+            "kernel_warnings": warnings, "failed_steps": sorted(set(failed)), **metrics_fields(reps),
             "digests": digest_sets(digests)}
 
 
@@ -225,7 +262,7 @@ def vs_release(rows, cfg, stable="release", candidate="main"):
             worse = (b["median"] - a["median"]) if name.endswith(LOWER_IS_BETTER) else (a["median"] - b["median"])
             if worse > 2 * spread:
                 flags.append((name, pct(b["median"], a["median"], name)))
-        out[(date, chip)] = flags
+        out[(date, chip)] = [] if base.get("noisy") or cand.get("noisy") else flags
     return out
 
 
@@ -336,7 +373,8 @@ def compare(rows, cfg):
     out = []
     for r in rows:
         earlier = sorted((x for x in rows if (x["chip"], x["stack"]) == (r["chip"], r["stack"])
-                          and x["date"] < r["date"] and not x.get("contaminated")), key=lambda x: x["date"])
+                          and x["date"] < r["date"] and not x.get("contaminated") and not x.get("noisy")),
+                         key=lambda x: x["date"])
         prev = earlier[-1] if earlier else None
         cells, regressions = {}, []
         for name in metric_names(cfg):
@@ -350,7 +388,7 @@ def compare(rows, cfg):
             d_prev = pct(v, p["median"], name) if p else None
             cells[name] = (v, d_prev, pct(v, best, name) if best is not None else None)
             spread = max(m.get("max", v) - m.get("min", v), p.get("max", 0) - p.get("min", 0)) if p else 0
-            if d_prev is not None and d_prev < -FLAG_PCT and abs(v - p["median"]) > 2 * spread:
+            if d_prev is not None and d_prev < -FLAG_PCT and abs(v - p["median"]) > 2 * spread and not r.get("noisy"):
                 regressions.append((name, d_prev))
         out.append((r, prev, cells, regressions))
     return out
@@ -389,8 +427,11 @@ def render(rows, cfg):
                  f"{c['label']}: {c['prompt_tokens']}-token prompt, {c['gen_tokens']} tokens" for c in
                  cfg.get("checks", [])) + "). Main must match the same Mac's release digest, and every rep of a "
              "stack must agree.", "",
-             "| Date | Mac | Stack | mlx | Vulkan driver | REGRESSION vs release | CORRECTNESS | "
-             + " | ".join(names) + " |", "|" + "---|" * (7 + len(names))]
+             "POWER STATE is the loaded system power from the Mac's SMC: the mean of the upper half of each rep's "
+             f"samples. Reps more than {round((POWER_STATE_RATIO - 1) * 100)}% apart ran in two power states. The row "
+             "is marked NOISY, and it is never a baseline or a regression.", "",
+             "| Date | Mac | Stack | mlx | Vulkan driver | REGRESSION vs release | CORRECTNESS | Power state | "
+             + " | ".join(names) + " |", "|" + "---|" * (8 + len(names))]
     compared = compare(rows, cfg)
     against = vs_release(rows, cfg)
     wrong = correctness(rows)
@@ -406,7 +447,7 @@ def render(rows, cfg):
         ok = "; ".join(f"{k} `{'/'.join(s[:8] for s in v)}`" for k, v in checks.items())
         verdict = ("**" + "; ".join(bad) + "**") if bad else ok
         lines.append(f"| {day(r)} | {r['chip']} | {r['stack']} | `{r['wheel']}` | `{r['driver']}` | {flag} | "
-                     f"{verdict} | " + " | ".join(vals) + " |")
+                     f"{verdict} | {r.get('power_state', '-')} | " + " | ".join(vals) + " |")
     lines += ["", "## Regressions", ""]
     flagged = False
     for r, prev, _, regs in compared:
@@ -486,13 +527,14 @@ def parity(rows, cfg):
 
 def day(r):
     """The row's ledger day, marked when the row was measured after that day's run (a Mac that was out of service),
-    found contaminated (another workload shared the machine), or taken from fewer reps than planned because the
-    shared reference Mac's GPU was busy."""
+    found contaminated (another workload shared the machine), noisy (its reps ran in two power states), or taken
+    from fewer reps than planned because the shared reference Mac's GPU was busy."""
     skipped = len(r.get("skipped_busy") or [])
     marks = (["late"] if r.get("late") else []) + (
         [f"CONTAMINATED: {r['contaminated']}"] if r.get("contaminated") else []) + (
+        [f"NOISY: {r['noisy']}"] if r.get("noisy") else []) + (
         [f"{r['reps']} of {r['reps'] + skipped} reps: GPU busy"] if skipped and r.get("reps") else [])
-    return r["date"] + "".join(f" **({m})**" if m.startswith("CONTAMINATED") else f" ({m})" for m in marks)
+    return r["date"] + "".join(f" **({m})**" if m.startswith(("CONTAMINATED", "NOISY")) else f" ({m})" for m in marks)
 
 
 def mark_cmd(date, chip, stack, reason):
@@ -564,7 +606,8 @@ def merger(cfg, date, log=lambda msg: print(msg, flush=True)):
 
     def merge(row):
         """Threads share `lock`; a second `coreglass ledger` process shares the flock on ledger.lock. A rerun never
-        replaces a clean row of the same day with one that has fewer good reps."""
+        replaces a clean row of the same day with one that has fewer good reps, or with a noisy one (reps in two
+        power states) when the old row is not noisy."""
         with lock, open(DOCS / "ledger.lock", "w") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             key = (date, row["chip"], row["stack"])
@@ -572,6 +615,9 @@ def merger(cfg, date, log=lambda msg: print(msg, flush=True)):
             old = next((r for r in rows if (r["date"], r["chip"], r["stack"]) == key), None)
             if old and not old.get("contaminated") and old.get("reps", 0) > row.get("reps", 0):
                 log(f"kept {key}: it has {old['reps']} good reps, the rerun {row.get('reps', 0)}")
+                return
+            if old and not old.get("contaminated") and row.get("noisy") and not old.get("noisy"):
+                log(f"kept {key}: the rerun is noisy ({row['noisy']}), the earlier row is not")
                 return
             save([r for r in rows if (r["date"], r["chip"], r["stack"]) != key] + [{"date": date, **row}], cfg)
     return merge
@@ -624,7 +670,7 @@ def add_cmd(host_name, stack_label, captures):
     merger(cfg, ledger_day(datetime.strptime(stamp, "%Y%m%dT%H%M%SZ")))(
         {"chip": host.get("chip", host["name"]), "os": "linux", "stack": stack_label, **info, "reps": len(reps),
          "rejected_idle_w": rejected, "kernel_warnings": sum(r[1] for r in reps),
-         "failed_steps": sorted({b for r in reps for b in r[2]}), "metrics": summarize([r[0] for r in reps]),
+         "failed_steps": sorted({b for r in reps for b in r[2]}), **metrics_fields([r[0] for r in reps]),
          "digests": digest_sets([r[4] for r in reps])})
     print(DOCS / "LEDGER.md")
 
