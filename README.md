@@ -81,6 +81,8 @@ runs with any Python and patch set you point it at. Then `coreglass phases` and 
 [docs/DESIGN.md](docs/DESIGN.md) has the full data coverage map. It lists what is still missing and why, and the
 producer contract for the GPU and ANE drivers. [docs/RESULTS.md](docs/RESULTS.md) has measured results. It covers
 an M1, an M1 Max, and an M2 Max on one software stack, four LLM engines each.
+[docs/BY-FEATURE.md](docs/BY-FEATURE.md) lists each measured feature against macOS where a same-Mac pair exists.
+Every row names its driver commit and its source record.
 
 ## Daily ledger
 
