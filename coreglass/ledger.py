@@ -606,7 +606,8 @@ def merger(cfg, date, log=lambda msg: print(msg, flush=True)):
 
     def merge(row):
         """Threads share `lock`; a second `coreglass ledger` process shares the flock on ledger.lock. A rerun never
-        replaces a clean row of the same day with one that has fewer good reps."""
+        replaces a clean row of the same day with one that has fewer good reps, or with a noisy one (reps in two
+        power states) when the old row is not noisy."""
         with lock, open(DOCS / "ledger.lock", "w") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             key = (date, row["chip"], row["stack"])
@@ -614,6 +615,9 @@ def merger(cfg, date, log=lambda msg: print(msg, flush=True)):
             old = next((r for r in rows if (r["date"], r["chip"], r["stack"]) == key), None)
             if old and not old.get("contaminated") and old.get("reps", 0) > row.get("reps", 0):
                 log(f"kept {key}: it has {old['reps']} good reps, the rerun {row.get('reps', 0)}")
+                return
+            if old and not old.get("contaminated") and row.get("noisy") and not old.get("noisy"):
+                log(f"kept {key}: the rerun is noisy ({row['noisy']}), the earlier row is not")
                 return
             save([r for r in rows if (r["date"], r["chip"], r["stack"]) != key] + [{"date": date, **row}], cfg)
     return merge

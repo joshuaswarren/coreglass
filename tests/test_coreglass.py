@@ -320,6 +320,29 @@ class Remote(unittest.TestCase):
         self.assertIn("| Power state |", page)
         self.assertIn("2026-10-02 **(NOISY: two states 44 / 77 W)**", page)
 
+    def test_a_noisy_same_day_rerun_does_not_replace_a_clean_row(self):
+        cfg = {"models": [{"label": "M"}], "engines": [{"label": "E"}], "checks": []}
+        dec = "M · E · decode tok/s"
+
+        def row(d, **extra):
+            return {"chip": "C", "stack": "s", "wheel": "0+a", "driver": "x", "kernel_id": "k", "os": "linux", "reps": 3,
+                    "metrics": {dec: {"median": d, "min": d, "max": d}}, **extra}
+        noisy = "two states 44 / 77 W"
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(ledger, "DOCS", Path(tmp)):
+            merge = ledger.merger(cfg, "2026-10-15", log=lambda msg: None)
+            merge(row(100.0))
+            merge(row(60.0, noisy=noisy))  # a noisy rerun of a clean day is kept out
+            self.assertEqual([r["metrics"][dec]["median"] for r in ledger.load_rows()], [100.0])
+            merge(row(101.0))  # a clean rerun still replaces a clean row
+            self.assertEqual([r["metrics"][dec]["median"] for r in ledger.load_rows()], [101.0])
+            merge(row(61.0, noisy=noisy))  # still kept out: the earlier row is clean
+            self.assertEqual([r["metrics"][dec]["median"] for r in ledger.load_rows()], [101.0])
+            later = ledger.merger(cfg, "2026-10-16", log=lambda msg: None)
+            later(row(60.0, noisy=noisy))
+            later(row(62.0, noisy=noisy))  # a noisy row may be replaced by another noisy one
+            later(row(100.0))  # and by a clean one
+            self.assertEqual(sorted(r["metrics"][dec]["median"] for r in ledger.load_rows()), [100.0, 101.0])
+
     def test_ledger_correctness_flags_digest_drift_and_disagreeing_reps(self):
         chk = ledger.CHECK + "GDN"
 
