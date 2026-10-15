@@ -99,6 +99,10 @@ digest; main must match release, and every rep must agree. Each metric cell hold
 against the previous day and the best earlier day.
 A contaminated row is one another workload shared, or one whose GPU never went quiet. It stays on the page,
 flagged, and is never a baseline or a reference. `coreglass ledger mark` flags one by hand.
+Each rep also records the SMC power rails (total system, AC input, heatpipe) at the sampler rate for the whole run.
+The capture keeps every raw sample. The ledger row keeps the loaded mean of each rail. The POWER STATE column marks a
+row NOISY when its reps ran in two power states, more than 20% apart on system power. A noisy row stays on the page
+and is never a baseline or a regression.
 
 A lab that shares a Mac can reserve it for one rep. Set `quiet_set` and `quiet_clear` on the target (see
 [ledger.example.toml](ledger.example.toml)):

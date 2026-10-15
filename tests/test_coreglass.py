@@ -281,6 +281,45 @@ class Remote(unittest.TestCase):
         b["metrics"][mm] = {"median": 0.49, "min": 0.48, "max": 0.49}
         self.assertEqual([n for n, _ in ledger.compare([a, b], cfg2)[1][3]], [mm])
 
+    def test_ledger_reads_the_smc_power_rails_of_a_capture_and_leaves_a_chip_without_them_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def capture(name, rails, watts):
+                lines = [{"meta": {"rails": rails}}] + [
+                    {"cpu": [0], "t": i, "w": {r: w for r in rails}} for i, w in enumerate(watts)]
+                path = Path(tmp) / name
+                path.write_text("\n".join(json.dumps(m) for m in lines) + "\n")
+                return path
+            rails = ["Total System Power", "AC Input Power", "Heatpipe Power", "3.8 V Rail Power"]
+            got = ledger.rail_loaded_w(capture("a.jsonl", rails, [10, 10, 70, 80]))
+            self.assertEqual(got, {"System power W": 75.0, "AC input W": 75.0, "Heatpipe W": 75.0})
+            self.assertEqual(ledger.rail_loaded_w(capture("b.jsonl", ["cpu temp"], [10, 80])), {})
+
+    def test_ledger_marks_a_row_noisy_when_its_reps_ran_in_two_power_states(self):
+        def fields(*watts):
+            return ledger.power_fields(ledger.summarize([{"System power W": w} for w in watts]))
+        self.assertEqual(fields(76.8, 76.6, 77.2), {"power_state": "one state 76.8 W"})
+        two = fields(76.8, 44.8, 76.6)
+        self.assertEqual(two["power_state"], "two states 44.8 / 76.8 W")
+        self.assertEqual(two["noisy"], two["power_state"])
+        self.assertEqual(fields(76.8, 64.0), {"power_state": "one state 70.4 W"})  # exactly 1.2 apart is one state
+        self.assertEqual(ledger.power_fields({}), {})
+
+    def test_ledger_never_compares_against_or_flags_a_noisy_row(self):
+        cfg = {"models": [{"label": "M"}], "engines": [{"label": "E"}]}
+        dec = "M · E · decode tok/s"
+
+        def row(date, d, **extra):
+            return {"date": date, "chip": "C", "stack": "s", "wheel": "0+a", "driver": "x", "kernel_id": "k",
+                    "os": "linux", "metrics": {dec: {"median": d, "min": d, "max": d}}, **extra}
+        rows = [row("2026-10-01", 100.0), row("2026-10-02", 60.0, noisy="two states 44 / 77 W"),
+                row("2026-10-03", 99.0)]
+        by = {r["date"]: (prev, regs) for r, prev, _, regs in ledger.compare(rows, cfg)}
+        self.assertEqual(by["2026-10-02"][1], [])  # a 40% drop on a noisy row is not a regression
+        self.assertEqual(by["2026-10-03"][0]["date"], "2026-10-01")  # and the noisy day is not the baseline
+        page = ledger.render(rows, {**cfg, "checks": []})
+        self.assertIn("| Power state |", page)
+        self.assertIn("2026-10-02 **(NOISY: two states 44 / 77 W)**", page)
+
     def test_ledger_correctness_flags_digest_drift_and_disagreeing_reps(self):
         chk = ledger.CHECK + "GDN"
 
