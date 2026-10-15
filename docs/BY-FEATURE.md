@@ -1,6 +1,6 @@
 # By feature: Omarchy on Apple Silicon
 
-This page lists each measured feature once. A row appears only when a driver commit and a source record exist.
+This page lists a selection of measured features. Each row has a driver commit and a source record.
 Every number comes from a record in a public repository. The Source column names the record.
 
 Read the share column as Linux divided by macOS. A share above 100% means Linux is faster.
@@ -27,7 +27,7 @@ The driver is named in [How close to macOS](https://github.com/joshuaswarren/oma
 ## Linux features measured every day
 
 Coreglass measures these on three Macs each day. No macOS run exists for them.
-The model is Qwen3.8-2B in 4-bit, run with mlx-lm. The prompt has 477 tokens and the reply has 128 tokens.
+The model is Qwen3.8-2B in 4-bit, run with mlx-lm. The prompt has about 477 tokens and the reply has about 128 tokens.
 Each cell is the median of three reps. The release stack is v0.7.32. The main stack is the current omarchy-mlx main.
 
 | Mac | Stack | Linux build | Driver | Decode, tokens per second | Prefill, tokens per second |
@@ -40,6 +40,8 @@ Each cell is the median of three reps. The release stack is v0.7.32. The main st
 | 14-inch M2 Max | main | `0.32.4.dev202610151008+4872e12` | Mesa `f144c7949b` | 100.4 | 1714.4 |
 
 Source: the 2026-10-15 rows of [`docs/ledger.json`](ledger.json), commit `a409d2c`. [LEDGER.md](LEDGER.md) shows the same rows.
+
+Mesa `e7631595df` is the driver of the packaged `omarchy-mlx-vulkan` 0.7.28-2. Mesa `f144c7949b` is the head of omacom/mesa pull request 6.
 
 ## GPU kernels: translated from Metal against hand-written
 
