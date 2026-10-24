@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1
+
+This release has 6 commits since 0.2.0. All six are daily ledger data commits, one for each of six ledger days: 2026-10-18 and 2026-10-20 to 2026-10-24. No code changed.
+
+### Measured in this release
+
+- `docs/ledger.json` holds 130 rows from 2026-10-05 to 2026-10-24, which is 45 rows more than 0.2.0. There are 123 Linux rows and 7 macOS reference rows on 4 chips.
+- Each release and main row is the median of 3 reps with its min and max.
+- One example row is the Apple M2 Max with Qwen3-4B 4-bit mlx-lm decode. On 2026-10-15 the main stack reads 53.9 tok/s (min 53.9, max 53.9). On 2026-10-24 the main stack reads 66.1 tok/s (min 66.0, max 66.3), which is 22.6 percent more. The release stack on 2026-10-24 reads 49.9 tok/s (min 49.7, max 49.9).
+- The test suite runs 30 tests. All of them pass.
+
 ## 0.2.0
 
 This release has 18 commits since 0.1.0. Seven of them are daily ledger data commits. The ledger itself, with `ledger run`, `mark`, `add` and `render`, already shipped in 0.1.0.
