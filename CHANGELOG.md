@@ -2,7 +2,7 @@
 
 ## 0.2.1
 
-This release has 6 commits since 0.2.0. All six are daily ledger data commits, one for each ledger day from 2026-10-18 to 2026-10-24. No code changed.
+This release has 6 commits since 0.2.0. All six are daily ledger data commits, one for each of six ledger days: 2026-10-18 and 2026-10-20 to 2026-10-24. No code changed.
 
 ### Measured in this release
 
