@@ -13663,7 +13663,8 @@
    "check \u00b7 GDN 1536-token prompt": [
     "3448b4d858cc506a"
    ]
-  }
+  },
+  "contaminated": "Vulkan conformance suite loading the GPU during the run; the driver pin also moved from f144c7949b to 9323171c12 and the mlx-lm tree gained the dense Qwen3 eager SwiGLU patch; not comparable, rerun with the GPU idle"
  },
  {
   "date": "2026-10-25",
@@ -13794,7 +13795,8 @@
    "check \u00b7 GDN 1536-token prompt": [
     "3448b4d858cc506a"
    ]
-  }
+  },
+  "contaminated": "Vulkan conformance suite loading the GPU during the run; the driver pin also moved from f144c7949b to 9323171c12 and the mlx-lm tree gained the dense Qwen3 eager SwiGLU patch; not comparable, rerun with the GPU idle"
  },
  {
   "date": "2026-10-25",
