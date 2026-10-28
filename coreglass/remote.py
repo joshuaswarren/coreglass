@@ -40,11 +40,12 @@ model = open("/proc/device-tree/model").read().strip("\0\n") if os.path.exists("
 stats = {name: any(os.access(p, os.R_OK) for p in glob.glob(pat)) for name, pat in
          (("agx_stats", "/sys/class/drm/card*/device/agx_stats"), ("ane_stats", "/sys/class/accel/accel*/device/ane_stats"))}
 accel = sorted({os.path.basename(os.path.realpath(p)) for p in glob.glob("/sys/class/accel/accel*/device/driver")})
+modules = sorted(ln.split()[0] for ln in open("/proc/modules")) if os.path.exists("/proc/modules") else []
 print(json.dumps({"hostname": platform.node(), "arch": platform.machine(), "model": model,
                   "kernel": platform.release(), "python": platform.python_version(),
                   "load1": os.getloadavg()[0], "gpu_lock_held": held(lock), "busy": busy[:3],
                   "mlx_python": bool(mlx) and os.access(mlx, os.X_OK), "stats": [k for k, v in stats.items() if v],
-                  "accel": accel}))
+                  "accel": accel, "modules": modules}))
 """
 
 SPIN = "for c in {cpus}; do timeout {secs} taskset -c $c sh -c 'while :; do :; done' coreglass-spin & done; wait || true"

@@ -133,6 +133,16 @@ class Remote(unittest.TestCase):
         self.assertEqual(remote.blockers(held, {"gpu_turn": "gpu-turn -m 6"}), [])  # the run queues instead
         self.assertEqual(remote.blockers(held, {}), ["GPU lock held by another job"])
 
+    def test_preflight_script_records_loaded_kernel_modules(self):
+        """The manifest keeps preflight, so the loaded modules (ane, pmp_overlay) land in every run.json."""
+        import subprocess, sys
+        p = subprocess.run([sys.executable, "-", "", "", "[]"], input=remote.PREFLIGHT, text=True, capture_output=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        got = json.loads(p.stdout)["modules"]
+        mods = Path("/proc/modules")
+        names = sorted(ln.split()[0] for ln in mods.read_text().splitlines()) if mods.exists() else []
+        self.assertEqual(got, names)
+
     def test_wait_ready_polls_until_quiet_and_gives_up_at_deadline(self):
         loads, real = iter([2.0, 0.9, 0.1, 0.1]), remote.preflight
         remote.preflight = lambda h: {"reachable": True, "gpu_lock_held": False, "load1": next(loads), "busy": []}
