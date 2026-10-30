@@ -16985,5 +16985,572 @@
   "gated_runs": 10,
   "runs": 10,
   "text_parity": true
+ },
+ {
+  "date": "2026-10-30",
+  "chip": "M1 Max \u00b7 T6001",
+  "os": "linux",
+  "stack": "release",
+  "wheel": "0.32.4.dev202610292155+42b30a2d",
+  "driver": "e7631595df",
+  "driver_info": "Mesa 26.3.0-devel (git-e7631595df)",
+  "kernel_id": "a56e2f33",
+  "ane_workload": "H13 add, 16 KiB",
+  "reps": 3,
+  "rejected_idle_w": [],
+  "kernel_warnings": 26,
+  "failed_steps": [],
+  "metrics": {
+   "AC input W": {
+    "median": 60.0,
+    "min": 57.8,
+    "max": 60.6,
+    "n": 3
+   },
+   "ANE jobs/s": {
+    "median": 23933.31,
+    "min": 23916.126,
+    "max": 24093.555,
+    "n": 3
+   },
+   "GPU matmul TFLOPS": {
+    "median": 5.34,
+    "min": 5.31,
+    "max": 5.34,
+    "n": 3
+   },
+   "Heatpipe W": {
+    "median": 48.6,
+    "min": 46.6,
+    "max": 49.1,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 TTFT ms": {
+    "median": 854.9,
+    "min": 853.5,
+    "max": 857.3,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 decode tok/s": {
+    "median": 61.5,
+    "min": 61.5,
+    "max": 61.7,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 prefill tok/s": {
+    "median": 558.3,
+    "min": 556.7,
+    "max": 559.1,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 TTFT ms": {
+    "median": 862.4,
+    "min": 860.9,
+    "max": 863.2,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 decode tok/s": {
+    "median": 57.4,
+    "min": 57.4,
+    "max": 57.5,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 prefill tok/s": {
+    "median": 553.1,
+    "min": 552.6,
+    "max": 554.1,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 TTFT ms": {
+    "median": 357.6,
+    "min": 357.6,
+    "max": 359.8,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 decode tok/s": {
+    "median": 104.9,
+    "min": 104.9,
+    "max": 105.1,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 prefill tok/s": {
+    "median": 1335.1,
+    "min": 1327.0,
+    "max": 1335.1,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 TTFT ms": {
+    "median": 368.2,
+    "min": 367.3,
+    "max": 368.7,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 decode tok/s": {
+    "median": 91.5,
+    "min": 90.8,
+    "max": 91.5,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 prefill tok/s": {
+    "median": 1295.4,
+    "min": 1293.6,
+    "max": 1298.5,
+    "n": 3
+   },
+   "System power W": {
+    "median": 60.0,
+    "min": 57.8,
+    "max": 60.6,
+    "n": 3
+   }
+  },
+  "power_state": "one state 60 W",
+  "digests": {
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm": [
+    "f08e61cced41f928"
+   ],
+   "Qwen3-4B 4-bit \u00b7 mlx-lm": [
+    "8e68ea1ec2d62fcc"
+   ],
+   "check \u00b7 GDN 1536-token prompt": [
+    "3448b4d858cc506a"
+   ]
+  }
+ },
+ {
+  "date": "2026-10-30",
+  "chip": "M1 \u00b7 T8103",
+  "os": "linux",
+  "stack": "main",
+  "wheel": "0.32.4.dev202610301117+c54d1a0",
+  "driver": "9323171c12",
+  "driver_info": "Mesa 26.3.0-devel (git-9323171c12)",
+  "kernel_id": "c4aa3fb7",
+  "ane_workload": "H13 add, 16 KiB",
+  "reps": 3,
+  "rejected_idle_w": [],
+  "kernel_warnings": 36,
+  "failed_steps": [],
+  "metrics": {
+   "AC input W": {
+    "median": 22.3,
+    "min": 22.3,
+    "max": 22.5,
+    "n": 3
+   },
+   "ANE jobs/s": {
+    "median": 37863.43,
+    "min": 35551.922,
+    "max": 38732.14,
+    "n": 3
+   },
+   "GPU matmul TFLOPS": {
+    "median": 1.69,
+    "min": 1.69,
+    "max": 1.7,
+    "n": 3
+   },
+   "Heatpipe W": {
+    "median": 15.0,
+    "min": 14.8,
+    "max": 15.0,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 TTFT ms": {
+    "median": 2781.0,
+    "min": 2778.5,
+    "max": 2803.7,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 decode tok/s": {
+    "median": 20.7,
+    "min": 20.7,
+    "max": 20.7,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 prefill tok/s": {
+    "median": 171.5,
+    "min": 170.2,
+    "max": 171.7,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 TTFT ms": {
+    "median": 2789.1,
+    "min": 2787.3,
+    "max": 2817.8,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 decode tok/s": {
+    "median": 20.0,
+    "min": 20.0,
+    "max": 20.0,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 prefill tok/s": {
+    "median": 171.0,
+    "min": 169.3,
+    "max": 171.1,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 TTFT ms": {
+    "median": 1162.4,
+    "min": 1158.1,
+    "max": 1170.5,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 decode tok/s": {
+    "median": 43.7,
+    "min": 43.5,
+    "max": 43.7,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 prefill tok/s": {
+    "median": 410.5,
+    "min": 407.7,
+    "max": 412.0,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 TTFT ms": {
+    "median": 1167.2,
+    "min": 1166.7,
+    "max": 1170.6,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 decode tok/s": {
+    "median": 41.5,
+    "min": 41.5,
+    "max": 41.6,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 prefill tok/s": {
+    "median": 408.7,
+    "min": 407.5,
+    "max": 408.8,
+    "n": 3
+   },
+   "System power W": {
+    "median": 22.3,
+    "min": 22.3,
+    "max": 22.5,
+    "n": 3
+   }
+  },
+  "power_state": "one state 22.3 W",
+  "digests": {
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm": [
+    "f08e61cced41f928"
+   ],
+   "Qwen3-4B 4-bit \u00b7 mlx-lm": [
+    "8e68ea1ec2d62fcc"
+   ],
+   "check \u00b7 GDN 1536-token prompt": [
+    "3448b4d858cc506a"
+   ]
+  }
+ },
+ {
+  "date": "2026-10-30",
+  "chip": "M1 Max \u00b7 T6001",
+  "os": "linux",
+  "stack": "main",
+  "wheel": "0.32.4.dev202610301117+c54d1a0",
+  "driver": "9323171c12",
+  "driver_info": "Mesa 26.3.0-devel (git-9323171c12)",
+  "kernel_id": "a56e2f33",
+  "ane_workload": "H13 add, 16 KiB",
+  "reps": 3,
+  "rejected_idle_w": [],
+  "kernel_warnings": 26,
+  "failed_steps": [],
+  "metrics": {
+   "AC input W": {
+    "median": 62.9,
+    "min": 62.3,
+    "max": 63.3,
+    "n": 3
+   },
+   "ANE jobs/s": {
+    "median": 24183.32,
+    "min": 24177.894,
+    "max": 24252.978,
+    "n": 3
+   },
+   "GPU matmul TFLOPS": {
+    "median": 5.92,
+    "min": 5.87,
+    "max": 6.1,
+    "n": 3
+   },
+   "Heatpipe W": {
+    "median": 50.1,
+    "min": 49.7,
+    "max": 50.2,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 TTFT ms": {
+    "median": 855.0,
+    "min": 854.8,
+    "max": 855.6,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 decode tok/s": {
+    "median": 64.8,
+    "min": 64.6,
+    "max": 64.9,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 mlx-lm \u00b7 prefill tok/s": {
+    "median": 558.2,
+    "min": 557.8,
+    "max": 558.3,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 TTFT ms": {
+    "median": 864.7,
+    "min": 863.5,
+    "max": 866.8,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 decode tok/s": {
+    "median": 60.4,
+    "min": 60.3,
+    "max": 60.4,
+    "n": 3
+   },
+   "Qwen3-4B 4-bit \u00b7 oMLX \u00b7 prefill tok/s": {
+    "median": 551.7,
+    "min": 550.3,
+    "max": 552.4,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 TTFT ms": {
+    "median": 358.9,
+    "min": 358.1,
+    "max": 361.0,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 decode tok/s": {
+    "median": 110.7,
+    "min": 108.8,
+    "max": 110.9,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm \u00b7 prefill tok/s": {
+    "median": 1330.4,
+    "min": 1322.7,
+    "max": 1333.4,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 TTFT ms": {
+    "median": 368.2,
+    "min": 368.1,
+    "max": 369.3,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 decode tok/s": {
+    "median": 96.1,
+    "min": 95.3,
+    "max": 96.2,
+    "n": 3
+   },
+   "Qwen3.8-2B 4-bit \u00b7 oMLX \u00b7 prefill tok/s": {
+    "median": 1295.6,
+    "min": 1291.5,
+    "max": 1296.0,
+    "n": 3
+   },
+   "System power W": {
+    "median": 62.9,
+    "min": 62.3,
+    "max": 63.3,
+    "n": 3
+   }
+  },
+  "power_state": "one state 62.9 W",
+  "digests": {
+   "Qwen3.8-2B 4-bit \u00b7 mlx-lm": [
+    "f08e61cced41f928"
+   ],
+   "Qwen3-4B 4-bit \u00b7 mlx-lm": [
+    "8e68ea1ec2d62fcc"
+   ],
+   "check \u00b7 GDN 1536-token prompt": [
+    "3448b4d858cc506a"
+   ]
+  }
+ },
+ {
+  "date": "2026-10-30",
+  "chip": "M1 \u00b7 T8103",
+  "os": "linux",
+  "stack": "oMLX server \u00b7 2B \u00b7 conv-fuse 0006",
+  "cell": true,
+  "wheel": "0.32.4.dev202610301117+c54d1a0",
+  "driver": "9323171c12",
+  "driver_info": "Mesa 26.3.0-devel (git-9323171c12)",
+  "kernel_id": "c4aa3fb7",
+  "reps": 10,
+  "kernel_warnings": 0,
+  "failed_steps": [],
+  "metrics": {
+   "off \u00b7 c1 server decode tok/s": {
+    "median": 43.6,
+    "min": 43.3,
+    "max": 43.7,
+    "n": 5
+   },
+   "off \u00b7 c1 aggregate tok/s": {
+    "median": 30.5,
+    "min": 30.4,
+    "max": 30.76,
+    "n": 5
+   },
+   "off \u00b7 c1 TTFT ms": {
+    "median": 1241.36,
+    "min": 1230.83,
+    "max": 1270.74,
+    "n": 5
+   },
+   "off \u00b7 c4 aggregate tok/s": {
+    "median": 41.46,
+    "min": 41.36,
+    "max": 41.52,
+    "n": 5
+   },
+   "off \u00b7 c4 server decode tok/s": {
+    "median": 15.1,
+    "min": 14.95,
+    "max": 15.100000000000001,
+    "n": 5
+   },
+   "on \u00b7 c1 server decode tok/s": {
+    "median": 44.0,
+    "min": 43.8,
+    "max": 44.2,
+    "n": 5
+   },
+   "on \u00b7 c1 aggregate tok/s": {
+    "median": 30.82,
+    "min": 30.62,
+    "max": 30.88,
+    "n": 5
+   },
+   "on \u00b7 c1 TTFT ms": {
+    "median": 1246.0,
+    "min": 1242.31,
+    "max": 1259.27,
+    "n": 5
+   },
+   "on \u00b7 c4 aggregate tok/s": {
+    "median": 41.91,
+    "min": 41.81,
+    "max": 42.04,
+    "n": 5
+   },
+   "on \u00b7 c4 server decode tok/s": {
+    "median": 15.35,
+    "min": 15.200000000000001,
+    "max": 15.35,
+    "n": 5
+   }
+  },
+  "texts": {
+   "off": [
+    "b819a5ece9d2"
+   ],
+   "on": [
+    "b819a5ece9d2"
+   ]
+  },
+  "gated_runs": 10,
+  "runs": 10,
+  "text_parity": true
+ },
+ {
+  "date": "2026-10-30",
+  "chip": "M1 Max \u00b7 T6001",
+  "os": "linux",
+  "stack": "oMLX server \u00b7 2B \u00b7 conv-fuse 0006",
+  "cell": true,
+  "wheel": "0.32.4.dev202610301117+c54d1a0",
+  "driver": "9323171c12",
+  "driver_info": "Mesa 26.3.0-devel (git-9323171c12)",
+  "kernel_id": "a56e2f33",
+  "reps": 10,
+  "kernel_warnings": 0,
+  "failed_steps": [],
+  "metrics": {
+   "off \u00b7 c1 server decode tok/s": {
+    "median": 105.7,
+    "min": 105.3,
+    "max": 106.0,
+    "n": 5
+   },
+   "off \u00b7 c1 aggregate tok/s": {
+    "median": 78.2,
+    "min": 77.85,
+    "max": 78.39,
+    "n": 5
+   },
+   "off \u00b7 c1 TTFT ms": {
+    "median": 425.5,
+    "min": 424.79,
+    "max": 427.44,
+    "n": 5
+   },
+   "off \u00b7 c4 aggregate tok/s": {
+    "median": 119.32,
+    "min": 118.39,
+    "max": 119.48,
+    "n": 5
+   },
+   "off \u00b7 c4 server decode tok/s": {
+    "median": 41.5,
+    "min": 40.9,
+    "max": 41.8,
+    "n": 5
+   },
+   "on \u00b7 c1 server decode tok/s": {
+    "median": 109.4,
+    "min": 109.2,
+    "max": 110.0,
+    "n": 5
+   },
+   "on \u00b7 c1 aggregate tok/s": {
+    "median": 80.18,
+    "min": 78.8,
+    "max": 80.59,
+    "n": 5
+   },
+   "on \u00b7 c1 TTFT ms": {
+    "median": 424.04,
+    "min": 423.47,
+    "max": 453.94,
+    "n": 5
+   },
+   "on \u00b7 c4 aggregate tok/s": {
+    "median": 122.38,
+    "min": 121.79,
+    "max": 122.54,
+    "n": 5
+   },
+   "on \u00b7 c4 server decode tok/s": {
+    "median": 43.2,
+    "min": 43.099999999999994,
+    "max": 43.400000000000006,
+    "n": 5
+   }
+  },
+  "texts": {
+   "off": [
+    "b819a5ece9d2"
+   ],
+   "on": [
+    "b819a5ece9d2"
+   ]
+  },
+  "gated_runs": 10,
+  "runs": 10,
+  "text_parity": true
  }
 ]
