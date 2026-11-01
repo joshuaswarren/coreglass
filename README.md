@@ -118,11 +118,12 @@ machine.
 
 `coreglass ledger run --only HOST` and `--no-reference` scope a run. `--stack LABEL` measures only those stacks and
 skips the server cells. `--cells-only` runs just the server cells (`[[cells]]` in ledger.toml: A/B runs of one
-environment switch on a live server). Each cell keeps its full raw output under `~/.local/share/coreglass/captures/`:
-per pair and variant the benchmark's stdout and stderr and the server's log, plus the transport stream and a
-`.run.json` manifest; the row's `artifacts` field names that manifest. Captures are never overwritten, the cell
-script flushes what is on disk when it exits early, and a failed or interrupted run keeps what arrived. A run
-whose raw output cannot be written records no row. `--late` marks
+environment switch on a live server). Each cell stores raw output under `~/.local/share/coreglass/captures/`:
+per pair and variant the benchmark's stdout and stderr and the server's log, plus exact received transport bytes.
+The row's `artifacts` field names the `.run.json` manifest. Captures are never overwritten.
+Cleanup drains the server before exporting files. If the shutdown grace expires, the manifest marks the capture
+incomplete and names the preserved temporary directory; cleanup does not snapshot or remove those files.
+A failed or interrupted run keeps what arrived. A run whose raw output cannot be written records no row. `--late` marks
 rows measured after the day's 10:00 UTC run. `coreglass ledger mark <date> <chip> <stack> <reason>` flags one row
 as contaminated. `coreglass ledger add <host> <stack> <captures>` merges a row from finished captures that a run
 never merged. `coreglass ledger render` rewrites docs/LEDGER.md from docs/ledger.json.

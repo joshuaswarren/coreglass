@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Cell captures preserve successful transport bytes, including invalid UTF-8 and original line endings.
+  Shutdown drains the server within fixed TERM/KILL bounds before export. On grace expiry, the capture is marked
+  incomplete and the temporary files remain in place.
 - Server cells now retain benchmark stdout/stderr, combined server logs, and received transport output in the capture store.
   A manifest records source/runtime identifiers, ticket status, part hashes, and incomplete or malformed sections.
   Ledger rows reference that manifest. Unique allocation prevents overwrites; cleanup exports files before removal.
