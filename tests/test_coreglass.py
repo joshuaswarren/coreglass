@@ -1,10 +1,18 @@
 import contextlib
+import hashlib
 import io
 import json
+import os
+import signal
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from coreglass import __main__ as cli
@@ -379,6 +387,354 @@ class Remote(unittest.TestCase):
                          (87.0, 1))
         self.assertEqual(metrics["off · c4 server decode tok/s"]["median"], 21.5)  # median of the 4 requests
         self.assertEqual(texts, {"off": ["aa"], "on": ["aa"]})
+
+
+class CellArtifacts(unittest.TestCase):
+    """A server cell keeps its full raw output — the benchmark's stdout and stderr, the server's log, and the
+    transport stream — in the house captures dir, also when the run fails or the transport dies mid-stream.
+    The real cell script runs under local bash with fixture child processes; the ssh stub stays on the machine
+    (no remote host, no provider, no server beyond the script's own port pick)."""
+
+    BENCH_RESULT = json.dumps({"type": "result", "concurrency": 1, "aggregate_tok_s": 42.5,
+                               "request_results": [{"ttft_ms": 12.5, "completion_text_sha256": "a" * 64}]})
+    SERVER_LINE = "Chat completion: model=m, prompt=8, 128 tokens in 2.0s (100.0 tok/s)"
+
+    def fixtures(self, tmp):
+        base, bin = Path(tmp) / "base", Path(tmp) / "bin"
+        (base / "venv/bin").mkdir(parents=True)
+        (base / "venv/bin/python").symlink_to(sys.executable)
+        (base / "shadow/omlx/patches/mlx_lm_mtp").mkdir(parents=True)
+        (base / "shadow/omlx/patches/mlx_lm_mtp/qwen35_model.py").write_text("MLX_OMARCHY_OMLX_CONV_FUSE = True\n")
+        (base / "model").mkdir()
+        (base / "model/config.json").write_text("{}")
+        (base / "prompt.txt").write_text("fixture prompt for the cell\n")
+        (base / "bench.py").write_text(f"""#!/usr/bin/env python3
+import sys
+from pathlib import Path
+base = Path(__file__).resolve().parent
+print("bench fixture noise: raw stdout before any result")
+if "--help" in sys.argv:
+    raise SystemExit(0)
+if (base / "bench-dies").exists():
+    sys.stderr.write("bench boom: connection reset\\n")
+    raise SystemExit(3)
+if (base / "bench-slow").exists():
+    import time
+    time.sleep(30)
+print({self.BENCH_RESULT!r})
+if (base / "bench-fails").exists():
+    print("partial line after the result")
+    sys.stderr.write("bench boom: connection reset\\n")
+    raise SystemExit(3)
+""")
+        (base / "venv/bin/omlx").write_text(f"""#!/bin/sh
+echo $$ > "$(dirname "$0")/../../omlx.pid"
+echo "fixture omlx serving: $*"
+echo "{self.SERVER_LINE}"
+exec sleep 300
+""")
+        bin.mkdir()
+        (bin / "curl").write_text("#!/bin/sh\nexit 0\n")
+        (bin / "python3").write_text("#!/bin/sh\n"
+                                     f'case "$1" in /tmp/coreglass-quiet.*) echo "1 0.99 0.0";; '
+                                     f'*) exec {sys.executable} "$@";; esac\n')
+        for p in (base / "bench.py", base / "venv/bin/omlx", bin / "curl", bin / "python3"):
+            p.chmod(0o755)
+        return base, bin
+
+    def cell(self):
+        return {"label": "fixture cell", "stack": "release", "shadow": "shadow", "model": "model",
+                "bench": "bench.py", "prompt": "prompt.txt", "env_off": {"CG_FIXTURE_OFF": "1"},
+                "concurrency": [1], "pairs": 1}
+
+    @contextlib.contextmanager
+    def patched(self, base, bin):
+        """Every storage global and the transport stay inside this test: no ssh binary, no user capture store."""
+        def local(host, cmd, stdin="", timeout=120):
+            return subprocess.run(["bash", "-c", cmd], input=stdin, text=True, capture_output=True,
+                                  timeout=timeout, env={**os.environ, "PATH": f"{bin}:{os.environ['PATH']}"})
+
+        with mock.patch.object(remote, "ssh", local), \
+             mock.patch.object(remote, "resolve", lambda n: {"name": "fixture", "ssh": "fixture-alias-never-dialed",
+                                                             "gpu_lock": f"{base}/gpu.lock"}):
+            yield local
+
+    def run_cell(self, base, bin, caps, transport=None, identifiers=None):
+        target = {"host": "fixture", "base": str(base)}
+        before, logs = self.tmp_snapshot(), []
+        with self.patched(base, bin) as local:
+            with mock.patch.object(remote, "ssh", transport(local) if transport else local):
+                out = cells.measure({"base": str(base)}, target, self.cell(), {"venv": "venv", "driver": "vulkan"},
+                                    str(base / "vulkan"), logs.append, Path(caps), identifiers=identifiers)
+        return out, logs, local, target, before
+
+    def manifest(self, caps):
+        path = next(Path(caps).glob("cells-*.run.json"))
+        return json.loads(path.read_text()), path.parent / path.name[:-len(".run.json")]
+
+    @staticmethod
+    def tmp_snapshot():
+        return {p.name for p in Path("/tmp").glob("coreglass-*")}
+
+    def assert_no_leftovers(self, base, before):
+        after = self.tmp_snapshot()
+        self.assertTrue(after <= before, f"new /tmp leftovers: {sorted(after - before)}")
+        pid = base / "omlx.pid"
+        if pid.exists():  # the fixture server's own pid: the exec'd child must be gone, not merely renamed
+            pid = int(pid.read_text())
+            try:
+                os.kill(pid, 0)
+                self.assertNotIn(b"sleep", Path(f"/proc/{pid}/cmdline").read_bytes(), "fixture server survived")
+            except ProcessLookupError:
+                pass
+
+    def test_a_clean_cell_run_keeps_exact_raw_bytes_and_the_row_keeps_a_safe_reference(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as caps:
+            base, bin = self.fixtures(tmp)
+            ids = {"wheel": "mlx 0.29.0", "driver": "cafe1234", "driver_info": "Mesa 26.3.0-devel",
+                   "kernel_id": "deadbeef"}
+            out, logs, local, target, before = self.run_cell(base, bin, caps, identifiers=ids)
+            self.assertEqual((out["gated_runs"], out["runs"]), (2, 2))  # one pair, both variant runs gated
+            self.assertEqual(out["run_rc"], 0)
+            self.assertEqual(out["metrics"]["off · c1 aggregate tok/s"]["median"], 42.5)
+            self.assertEqual(out["metrics"]["on · c1 server decode tok/s"]["median"], 100.0)
+            self.assertEqual(out["metrics"]["off · c1 TTFT ms"]["median"], 12.5)
+            self.assertTrue(out["text_parity"])
+            stem = out["artifacts"][:-len(".run.json")]
+            raw = Path(caps) / stem
+            self.assertEqual((raw / "p1-off-bench.out").read_bytes(),
+                             f"bench fixture noise: raw stdout before any result\n{self.BENCH_RESULT}\n".encode())
+            self.assertEqual((raw / "p1-off-bench.err").read_bytes(), b"")
+            server = (raw / "p1-on-server.log").read_text().splitlines()
+            self.assertEqual(server[1], self.SERVER_LINE)
+            self.assertTrue(server[0].startswith("fixture omlx serving: serve --model-dir "))
+            transport = (raw / "transport.out").read_text()
+            self.assertIn("@@cell artifact 1 off bench.out", transport)  # the whole marked stream is kept
+            self.assertIn(self.SERVER_LINE, transport)
+            man = json.loads((Path(caps) / out["artifacts"]).read_text())
+            self.assertEqual((man["rc"], man["interrupted"], man["identifiers"]), (0, False, ids))
+            self.assertEqual(man["invalid_parts"], [])
+            self.assertEqual(man["coreglass_commit"], remote._commit())  # source binding, house pattern
+            self.assertIn("flock", man["command"])  # the declared exact execution context
+            self.assertIn("gpu.lock", man["command"])
+            self.assertEqual(man["script_sha256"],
+                             hashlib.sha256(cells.cell_script(
+                                 self.cell(), str(base), {"venv": "venv", "driver": "vulkan"},
+                                 str(base / "vulkan"), dry=False).encode()).hexdigest())
+            self.assertEqual(sorted(man["parts"]),
+                             sorted(f"p1-{v}-{p}" for v in ("off", "on")
+                                    for p in ("bench.err", "bench.out", "server.log")))
+            for name, part in man["parts"].items():
+                data = (raw / name).read_bytes()
+                self.assertEqual((part["status"], part["size"], part["declared"]), ("ok", len(data), len(data)))
+                self.assertEqual(hashlib.sha256(data).hexdigest(), part["sha256"])
+            self.assert_no_leftovers(base, before)
+            docs = Path(tmp) / "docs"
+            docs.mkdir()
+            cfg = {"stacks": [{"label": "release", "venv": "venv", "driver": "vulkan"}], "base": str(base),
+                   "models": [], "engines": [], "checks": []}
+            with mock.patch.object(ledger, "stack_info", lambda *a: ids), \
+                 mock.patch.object(ledger, "DOCS", docs), \
+                 mock.patch.object(ledger, "CAPTURES", Path(caps)), \
+                 mock.patch.object(remote, "ssh", local), \
+                 mock.patch.object(remote, "resolve", lambda n: {"name": "fixture", "ssh": "fixture-alias-never-dialed",
+                                                                 "gpu_lock": f"{base}/gpu.lock"}):
+                row = ledger.measure_cell(cfg, target, self.cell(), lambda msg: None)
+                ledger.merger(cfg, "2026-11-01", log=lambda msg: None)(row)
+            rows = json.loads((docs / "ledger.json").read_text())
+            self.assertEqual(rows[0]["run_rc"], 0)
+            self.assertIn(rows[0]["artifacts"], {p.name for p in Path(caps).iterdir()})  # ref survives the caller
+            blob = (docs / "ledger.json").read_text() + (docs / "LEDGER.md").read_text()
+            self.assertNotIn("fixture-alias", blob)  # the row's reference must be capture-store-relative
+            self.assertNotIn(str(base), blob)
+
+    def test_the_manifest_identifies_the_cell_without_its_environment_values(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as live:
+            base, bin = self.fixtures(tmp)
+            cfg = {"stacks": [{"label": "release", "venv": "venv", "driver": "vulkan"}], "base": str(base),
+                   "models": [], "engines": [], "checks": []}
+            target = {"host": "fixture", "base": str(base)}
+            cell = {**self.cell(), "env_off": {"CG_FIXTURE_OFF": "1", "CG_TOPSECRET_TOKEN": "do-not-ship-hunter2"}}
+            with self.patched(base, bin), mock.patch.object(ledger, "CAPTURES", Path(live)), \
+                 mock.patch.object(ledger, "stack_info",
+                                   lambda *a: {"wheel": "mlx fixed", "driver": "fix", "driver_info": "Mesa fixed",
+                                               "kernel_id": "fixed0"}):
+                row = ledger.measure_cell(cfg, target, cell, lambda msg: None)  # caller and producer, one path
+            man, raw = self.manifest(live)
+            blob = "\n".join(p.read_text(errors="surrogateescape") for p in raw.rglob("*") if p.is_file())
+            self.assertNotIn("do-not-ship-hunter2", blob)  # the env value lands nowhere in the kept evidence
+            self.assertNotIn("CG_TOPSECRET_TOKEN", blob)
+            self.assertNotIn("env_off", man["cell"])       # omitted by allowlist, not secret-scrubbed by name
+            self.assertEqual((man["cell"]["label"], man["cell"]["model"], man["cell"]["bench"],
+                              man["cell"]["concurrency"]), ("fixture cell", "model", "bench.py", [1]))
+            self.assertEqual(man["script_sha256"],         # the exact env still binds via the script hash
+                             hashlib.sha256(cells.cell_script(cell, str(base), {"venv": "venv", "driver": "vulkan"},
+                                                              str(base / "vulkan"), dry=False).encode()).hexdigest())
+            self.assertEqual(row["metrics"]["off · c1 aggregate tok/s"]["median"], 42.5)  # outcome unchanged
+            self.assertIn(row["artifacts"], {p.name for p in Path(live).iterdir()})  # artifact ref survives
+            self.assertEqual(man["parts"]["p1-off-bench.out"]["status"], "ok")
+
+    def test_a_broken_bench_keeps_its_partial_bytes_and_stderr_but_records_no_row(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as caps:
+            base, bin = self.fixtures(tmp)
+            (base / "bench-dies").write_text("")
+            out, logs, local, target, before = self.run_cell(base, bin, caps)
+            self.assertIsNone(out)  # no metrics: exactly the old outcome, but the evidence stays
+            man, raw = self.manifest(caps)
+            self.assertEqual((man["rc"], man["interrupted"]), (0, False))
+            self.assertEqual((raw / "p1-off-bench.err").read_bytes(), b"bench boom: connection reset\n")
+            self.assertEqual((raw / "p1-on-bench.out").read_bytes(),
+                             b"bench fixture noise: raw stdout before any result\n")
+            self.assertIn(self.SERVER_LINE, (raw / "p1-on-server.log").read_text())
+            self.assertTrue(any("captures/" in m for m in logs))
+            self.assert_no_leftovers(base, before)
+
+    def test_a_bench_that_fails_after_its_result_still_merges_the_same_row_with_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as caps:
+            base, bin = self.fixtures(tmp)
+            (base / "bench-fails").write_text("")
+            out, logs, local, target, before = self.run_cell(base, bin, caps)
+            self.assertEqual(out["metrics"]["on · c1 aggregate tok/s"]["median"], 42.5)  # semantics unchanged
+            self.assertEqual(out["run_rc"], 0)  # the script's own exit status, as before the change
+            _, raw = self.manifest(caps)
+            self.assertEqual((raw / "p1-off-bench.err").read_bytes(), b"bench boom: connection reset\n")
+            self.assertTrue((raw / "p1-off-bench.out").read_bytes().endswith(b"partial line after the result\n"))
+            self.assert_no_leftovers(base, before)
+
+    def test_a_dead_transport_keeps_the_partial_stream_and_marks_the_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as caps:
+            base, bin = self.fixtures(tmp)
+            partial = (f"@@cell run 1 off gate 1 0.99 0.0\n@@cell bench {self.BENCH_RESULT}\n"
+                       '@@cell artifact 1 off bench.out 64\nQQ')
+
+            def dead(local):
+                def ssh(host, cmd, stdin="", timeout=120):
+                    if "coreglass-cell" in stdin:
+                        raise subprocess.TimeoutExpired(cmd, timeout, output=partial.encode(),
+                                                        stderr=b"transport diagnostic\xff\r\n")
+                    return local(host, cmd, stdin, timeout)
+                return ssh
+
+            out, logs, local, target, before = self.run_cell(base, bin, caps, transport=dead)
+            self.assertTrue(out["interrupted"])  # partial evidence survives, visibly marked, never silently
+            self.assertIsNone(out["run_rc"])     # the transport died: there is no exit status to claim
+            self.assertEqual(out["gated_runs"], 1)
+            man, raw = self.manifest(caps)
+            self.assertTrue(man["interrupted"])
+            self.assertIsNone(man["rc"])
+            self.assertEqual((raw / "transport.out").read_bytes(), partial.encode())
+            self.assertEqual((raw / "transport.err").read_bytes(), b"transport diagnostic\xff\r\n")
+            self.assertEqual((raw / "p1-off-bench.out").read_bytes(), b"A")  # the cut section keeps what arrived
+            self.assertEqual(man["parts"]["p1-off-bench.out"]["status"], "truncated")
+            self.assert_no_leftovers(base, before)
+
+    def test_the_ledger_caller_records_its_own_evidence_and_a_fixed_clock_rerun_never_overwrites(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as live:
+            base, bin = self.fixtures(tmp)
+            cfg = {"stacks": [{"label": "release", "venv": "venv", "driver": "vulkan"}], "base": str(base),
+                   "models": [], "engines": [], "checks": []}
+            target = {"host": "fixture", "base": str(base)}
+
+            class FixedUTC(datetime):
+                @classmethod
+                def now(cls, tz=None):  # both runs collide on the stamp: allocation must still be unique
+                    return datetime(2026, 11, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+            with self.patched(base, bin), mock.patch.object(ledger, "CAPTURES", Path(live)), \
+                 mock.patch.object(ledger, "stack_info", lambda *a: {"wheel": "mlx fixed", "driver": "fix",
+                                                                     "driver_info": "Mesa fixed",
+                                                                     "kernel_id": "fixed0"}), \
+                 mock.patch.object(cells, "datetime", FixedUTC):
+                row = ledger.measure_cell(cfg, target, self.cell(), lambda msg: None)  # caller = only producer
+                stem = row["artifacts"][:-len(".run.json")]
+                self.assertTrue((Path(live) / stem).is_dir())  # evidence under the caller's own store
+                first = (Path(live) / stem / "p1-off-bench.out").read_bytes()
+                (base / "bench-fails").write_text("")  # the rerun still merges: fails after its result
+                rerun = ledger.measure_cell(cfg, target, self.cell(), lambda msg: None)
+            stems = {p.name for p in Path(live).iterdir() if p.is_dir()}
+            self.assertEqual(len(stems), 2)  # same stamp: unique allocation, no overwrite of run 1
+            self.assertNotEqual(row["artifacts"], rerun["artifacts"])
+            self.assertEqual((Path(live) / stem / "p1-off-bench.out").read_bytes(), first)  # run 1 intact
+            self.assertNotEqual(first, (Path(live) / rerun["artifacts"][:-len(".run.json")] /
+                                        "p1-off-bench.out").read_bytes())
+            for name in (row["artifacts"], rerun["artifacts"]):
+                self.assertTrue((Path(live) / name).is_file())  # both manifests stay readable
+
+    def test_a_signalled_run_flushes_what_is_on_disk_before_cleanup_and_really_kills_the_child(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as caps:
+            base, bin = self.fixtures(tmp)
+            (base / "bench-slow").write_text("")
+            procs = []
+
+            def interrupting(local):
+                def ssh(host, cmd, stdin="", timeout=120):
+                    if "coreglass-cell" not in stdin:
+                        return local(host, cmd, stdin, timeout)
+                    p = subprocess.Popen(["bash", "-c", cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE, text=True, start_new_session=True,
+                                         env={**os.environ, "PATH": f"{bin}:{os.environ['PATH']}"})
+                    procs.append(p)
+                    p.stdin.write(stdin)
+                    p.stdin.close()
+                    head = []
+                    for _ in range(200):
+                        ln = p.stdout.readline()
+                        if not ln:
+                            break
+                        head.append(ln)
+                        if ln.startswith("@@cell") and " gate " in ln:  # the variant is running: TERM mid-bench
+                            time.sleep(0.5)
+                            os.killpg(p.pid, signal.SIGTERM)
+                            break
+                    rest_out, rest_err = p.stdout.read(), p.stderr.read()
+                    p.stdout.close(), p.stderr.close()
+                    p.wait(timeout=30)
+                    return SimpleNamespace(returncode=p.returncode, stdout="".join(head) + rest_out,
+                                           stderr=rest_err)
+                return ssh
+
+            out, logs, local, target, before = self.run_cell(base, bin, caps, transport=interrupting)
+            self.assertIsNone(out)  # the bench never finished: no metrics, exactly as before
+            man, raw = self.manifest(caps)
+            self.assertFalse(man["interrupted"])  # a real local signal, not the injected timeout path
+            # the killed client reports death by signal; the flush in the script's own trap is the proof it ran
+            self.assertEqual((man["rc"], [q.returncode for q in procs]), (-15, [-15]))
+            self.assertEqual((raw / "p1-off-bench.out").read_bytes(),
+                             b"bench fixture noise: raw stdout before any result\n")  # flushed mid-run
+            self.assertIn(self.SERVER_LINE, (raw / "p1-off-server.log").read_text())
+            self.assertIn("@@cell artifact 1 off bench.out", (raw / "transport.out").read_text())
+            self.assertIn("@@cell artifact 1 off bench.err", (raw / "transport.out").read_text())
+            self.assert_no_leftovers(base, before)
+
+    def test_off_protocol_and_malformed_sections_are_refused_and_transport_bytes_land_first(self):
+        with tempfile.TemporaryDirectory() as caps:
+            stream = ("@@cell artifact 1 off bench.out 3\nYWJj\n"        # ok: abc
+                      "@@cell artifact 1 off ../../evil 3\nUVZa\n"       # traversal: refused
+                      "@@cell artifact 9 sideways bench.out 3\nUVZa\n"   # off-protocol variant: refused
+                      "@@cell artifact 1 on bench.err 3\n!!!!\n"         # malformed base64: kept as-is, marked
+                      "@@cell artifact 1 on bench.out 999\nUVFV\n"       # cut short: truncated
+                      "@@cell artifact 1 off bench.err 3\nYWFhYQ==\n")   # 3 declared, 4 decoded: size mismatch
+            run = SimpleNamespace(returncode=2, stdout=stream, stderr="boom")
+            cells.save_artifacts(run, {"label": "fixture cell"}, Path(caps), "flock cmd", "set -u")
+            man, raw = self.manifest(caps)
+            self.assertEqual((raw / "transport.out").read_text(), stream)  # exact transport bytes, first
+            self.assertEqual((raw / "transport.err").read_text(), "boom")
+            self.assertEqual((raw / "p1-off-bench.out").read_bytes(), b"abc")
+            self.assertEqual(man["parts"]["p1-on-bench.err"]["status"], "malformed")
+            self.assertEqual((raw / "p1-on-bench.err").read_bytes(), b"!!!!")
+            self.assertEqual(man["parts"]["p1-on-bench.out"]["status"], "truncated")
+            self.assertEqual((raw / "p1-on-bench.out").read_bytes(), b"QQU")  # truncated: what arrived, decoded
+            self.assertEqual(man["parts"]["p1-off-bench.err"],          # oversized: malformed, real bytes kept
+                             {"pair": "1", "variant": "off", "part": "bench.err", "status": "malformed",
+                              "size": 4, "declared": 3, "sha256": hashlib.sha256(b"aaaa").hexdigest()})
+            self.assertEqual((raw / "p1-off-bench.err").read_bytes(), b"aaaa")
+            self.assertEqual((man["rc"], man["invalid_parts"]),
+                             (2, ["@@cell artifact 1 off ../../evil 3", "@@cell artifact 9 sideways bench.out 3"]))
+            self.assertEqual(sorted(p.name for p in raw.iterdir()),
+                             ["p1-off-bench.err", "p1-off-bench.out", "p1-on-bench.err", "p1-on-bench.out",
+                              "transport.err", "transport.out"])  # nothing escaped the stem, nothing was created outside
+            self.assertEqual(man["command"], "flock cmd")
+            self.assertEqual(man["script_sha256"], hashlib.sha256(b"set -u").hexdigest())
 
 
 class Render(unittest.TestCase):
