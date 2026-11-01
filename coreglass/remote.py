@@ -89,9 +89,12 @@ def resolve(name):
     return hosts.get(name) or next((h for h in hosts.values() if h["ssh"] == name), None) or {"name": name, "ssh": name}
 
 
-def ssh(host, cmd, stdin="", timeout=120):
+def ssh(host, cmd, stdin="", timeout=120, text=True):
+    """Return text by default; cell captures request unmodified bytes with text=False."""
     return subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host["ssh"], cmd],
-                          input=stdin, text=True, capture_output=True, timeout=timeout)
+                          input=stdin.encode() if not text and isinstance(stdin, str) else stdin,
+                          text=text, capture_output=True,
+                          timeout=timeout)
 
 
 def preflight(host):

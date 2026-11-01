@@ -1,4 +1,5 @@
 import contextlib
+import base64
 import hashlib
 import io
 import json
@@ -132,6 +133,29 @@ class Sampler(unittest.TestCase):
 
 
 class Remote(unittest.TestCase):
+    def test_ssh_preserves_binary_bytes_and_encodes_only_binary_strings(self):
+        with tempfile.TemporaryDirectory(prefix="coreglass-transport-") as tmp:
+            stub = Path(tmp) / "ssh"
+            stub.write_text(f"#!{sys.executable}\n"
+                            "import sys\n"
+                            "data = sys.stdin.buffer.read()\n"
+                            "sys.stdout.buffer.write(data)\n"
+                            "sys.stderr.buffer.write(data)\n")
+            stub.chmod(0o755)
+            binary = b"\x00\xff\x80\r\nbare\rend\n"
+            text = "π\r\nbare\rend\n"
+            cases = (({"text": False}, binary, binary),
+                     ({"text": False}, text, text.encode()),
+                     ({}, text, "π\nbare\nend\n"))
+            with mock.patch.dict(os.environ, {"PATH": f"{tmp}:{os.environ['PATH']}"}):
+                for mode, stdin, expected in cases:
+                    with self.subTest(mode=mode, input_type=type(stdin).__name__):
+                        result = remote.ssh({"ssh": "local-fixture-never-dialed"}, "unused",
+                                            stdin=stdin, timeout=5, **mode)
+                        self.assertEqual(result.returncode, 0)
+                        self.assertEqual(result.stdout, expected)
+                        self.assertEqual(result.stderr, expected)
+
     def test_blockers_refuse_busy_hosts(self):
         quiet = {"reachable": True, "gpu_lock_held": False, "load1": 0.1, "busy": []}
         self.assertEqual(remote.blockers(quiet), [])
@@ -431,14 +455,27 @@ if (base / "bench-fails").exists():
 echo $$ > "$(dirname "$0")/../../omlx.pid"
 echo "fixture omlx serving: $*"
 echo "{self.SERVER_LINE}"
+d="$(dirname "$0")/../.."
+if [ -e "$d/omlx-ignores-term" ]; then
+  trap '' TERM   # only SIGKILL can stop this server
+elif [ -e "$d/omlx-shutdown" ]; then
+  trap 'sleep 0.4; echo "fixture omlx shutdown drained"; kill $child 2>/dev/null; exit 0' TERM
+  sleep 300 &
+  child=$!
+  wait
+  exit 0
+fi
 exec sleep 300
 """)
         bin.mkdir()
         (bin / "curl").write_text("#!/bin/sh\nexit 0\n")
         (bin / "python3").write_text("#!/bin/sh\n"
-                                     f'case "$1" in /tmp/coreglass-quiet.*) echo "1 0.99 0.0";; '
+                                     f'case "$1" in {base}/coreglass-quiet.*) echo "1 0.99 0.0";; '
                                      f'*) exec {sys.executable} "$@";; esac\n')
-        for p in (base / "bench.py", base / "venv/bin/omlx", bin / "curl", bin / "python3"):
+        (bin / "mktemp").write_text("#!/bin/sh\n"
+                                    f'if [ "$1" = -d ]; then exec /usr/bin/mktemp -d {base}/coreglass-cell.XXXX; '
+                                    f'else exec /usr/bin/mktemp {base}/coreglass-quiet.XXXX.py; fi\n')
+        for p in (base / "bench.py", base / "venv/bin/omlx", bin / "curl", bin / "python3", bin / "mktemp"):
             p.chmod(0o755)
         return base, bin
 
@@ -450,9 +487,10 @@ exec sleep 300
     @contextlib.contextmanager
     def patched(self, base, bin):
         """Every storage global and the transport stay inside this test: no ssh binary, no user capture store."""
-        def local(host, cmd, stdin="", timeout=120):
-            return subprocess.run(["bash", "-c", cmd], input=stdin, text=True, capture_output=True,
-                                  timeout=timeout, env={**os.environ, "PATH": f"{bin}:{os.environ['PATH']}"})
+        def local(host, cmd, stdin="", timeout=120, text=True):
+            return subprocess.run(["bash", "-c", cmd], input=stdin if text else stdin.encode(), text=text,
+                                  capture_output=True, timeout=timeout,
+                                  env={**os.environ, "PATH": f"{bin}:{os.environ['PATH']}"})
 
         with mock.patch.object(remote, "ssh", local), \
              mock.patch.object(remote, "resolve", lambda n: {"name": "fixture", "ssh": "fixture-alias-never-dialed",
@@ -461,7 +499,7 @@ exec sleep 300
 
     def run_cell(self, base, bin, caps, transport=None, identifiers=None):
         target = {"host": "fixture", "base": str(base)}
-        before, logs = self.tmp_snapshot(), []
+        before, logs = self.tmp_snapshot(base), []
         with self.patched(base, bin) as local:
             with mock.patch.object(remote, "ssh", transport(local) if transport else local):
                 out = cells.measure({"base": str(base)}, target, self.cell(), {"venv": "venv", "driver": "vulkan"},
@@ -473,12 +511,12 @@ exec sleep 300
         return json.loads(path.read_text()), path.parent / path.name[:-len(".run.json")]
 
     @staticmethod
-    def tmp_snapshot():
-        return {p.name for p in Path("/tmp").glob("coreglass-*")}
+    def tmp_snapshot(base):
+        return {p.name for p in base.glob("coreglass-*")}
 
     def assert_no_leftovers(self, base, before):
-        after = self.tmp_snapshot()
-        self.assertTrue(after <= before, f"new /tmp leftovers: {sorted(after - before)}")
+        after = self.tmp_snapshot(base)
+        self.assertTrue(after <= before, f"new fixture leftovers: {sorted(after - before)}")
         pid = base / "omlx.pid"
         if pid.exists():  # the fixture server's own pid: the exec'd child must be gone, not merely renamed
             pid = int(pid.read_text())
@@ -608,7 +646,7 @@ exec sleep 300
                        '@@cell artifact 1 off bench.out 64\nQQ')
 
             def dead(local):
-                def ssh(host, cmd, stdin="", timeout=120):
+                def ssh(host, cmd, stdin="", timeout=120, text=True):
                     if "coreglass-cell" in stdin:
                         raise subprocess.TimeoutExpired(cmd, timeout, output=partial.encode(),
                                                         stderr=b"transport diagnostic\xff\r\n")
@@ -660,40 +698,48 @@ exec sleep 300
             for name in (row["artifacts"], rerun["artifacts"]):
                 self.assertTrue((Path(live) / name).is_file())  # both manifests stay readable
 
+    def signal_transport(self, bin, procs, env=None):
+        """Kill the cell script's whole session with SIGTERM mid-bench — a real local signal, no ssh binary.
+        The variant is running when the gate marker arrives; `procs` collects the script process."""
+        def interrupting(local):
+            def ssh(host, cmd, stdin="", timeout=120, text=True):
+                if "coreglass-cell" not in stdin:
+                    return local(host, cmd, stdin, timeout)
+                p = subprocess.Popen(["bash", "-c", cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, text=True, start_new_session=True,
+                                     env={**os.environ, "PATH": f"{bin}:{os.environ['PATH']}", **(env or {})})
+                procs.append(p)
+                p.stdin.write(stdin)
+                p.stdin.close()
+                p.stdin = None
+                head = []
+                for _ in range(200):
+                    ln = p.stdout.readline()
+                    if not ln:
+                        break
+                    head.append(ln)
+                    if ln.startswith("@@cell") and " gate " in ln:  # the variant is running: TERM mid-bench
+                        time.sleep(0.5)
+                        os.killpg(p.pid, signal.SIGTERM)
+                        break
+                try:
+                    rest_out, rest_err = p.communicate(timeout=25)
+                except subprocess.TimeoutExpired:
+                    os.killpg(p.pid, signal.SIGKILL)
+                    p.communicate(timeout=5)
+                    raise
+                return SimpleNamespace(returncode=p.returncode, stdout="".join(head) + rest_out,
+                                       stderr=rest_err)
+            return ssh
+        return interrupting
+
     def test_a_signalled_run_flushes_what_is_on_disk_before_cleanup_and_really_kills_the_child(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as caps:
             base, bin = self.fixtures(tmp)
             (base / "bench-slow").write_text("")
             procs = []
-
-            def interrupting(local):
-                def ssh(host, cmd, stdin="", timeout=120):
-                    if "coreglass-cell" not in stdin:
-                        return local(host, cmd, stdin, timeout)
-                    p = subprocess.Popen(["bash", "-c", cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                         stderr=subprocess.PIPE, text=True, start_new_session=True,
-                                         env={**os.environ, "PATH": f"{bin}:{os.environ['PATH']}"})
-                    procs.append(p)
-                    p.stdin.write(stdin)
-                    p.stdin.close()
-                    head = []
-                    for _ in range(200):
-                        ln = p.stdout.readline()
-                        if not ln:
-                            break
-                        head.append(ln)
-                        if ln.startswith("@@cell") and " gate " in ln:  # the variant is running: TERM mid-bench
-                            time.sleep(0.5)
-                            os.killpg(p.pid, signal.SIGTERM)
-                            break
-                    rest_out, rest_err = p.stdout.read(), p.stderr.read()
-                    p.stdout.close(), p.stderr.close()
-                    p.wait(timeout=30)
-                    return SimpleNamespace(returncode=p.returncode, stdout="".join(head) + rest_out,
-                                           stderr=rest_err)
-                return ssh
-
-            out, logs, local, target, before = self.run_cell(base, bin, caps, transport=interrupting)
+            out, logs, local, target, before = self.run_cell(base, bin, caps,
+                                                             transport=self.signal_transport(bin, procs))
             self.assertIsNone(out)  # the bench never finished: no metrics, exactly as before
             man, raw = self.manifest(caps)
             self.assertFalse(man["interrupted"])  # a real local signal, not the injected timeout path
@@ -705,6 +751,121 @@ exec sleep 300
             self.assertIn("@@cell artifact 1 off bench.out", (raw / "transport.out").read_text())
             self.assertIn("@@cell artifact 1 off bench.err", (raw / "transport.out").read_text())
             self.assert_no_leftovers(base, before)
+
+    def test_a_successful_run_keeps_the_exact_transport_bytes_through_the_real_ssh_helper(self):
+        """Byte mode: the measure run's stream is not always text. The real remote.ssh executes with an `ssh`
+        stub on PATH, and a stream carrying bytes outside UTF-8 must land exactly and still merge a row."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as caps:
+            base, _bin = self.fixtures(tmp)
+            noise = b"bench \xff\x00 raw \xfe bytes\r\nbare\rend\n"
+            diagnostic = b"diagnostic \x80\xff bytes\r\nbare\rend\n"
+
+            def section(v, name, data):
+                return (f"@@cell artifact 1 {v} {name} {len(data)}\n".encode() + base64.b64encode(data) + b"\n")
+
+            stream = b""
+            for v in ("off", "on"):
+                stream += (f"@@cell run 1 {v} gate 1 0.99 0.0\n@@cell bench {self.BENCH_RESULT}\n"
+                           f"@@cell log {self.SERVER_LINE}\n").encode()
+                if v == "on":
+                    stream += noise  # raw transport bytes between the marked lines
+                for name, data in (("bench.out", noise), ("bench.err", diagnostic), ("log", noise)):
+                    stream += section(v, name, data)
+            stub = Path(tmp) / "sshbin"
+            stub.mkdir()
+            (stub / "ssh").write_text(  # the dry script gets a shadow line; the cell script gets the bytes
+                "#!/bin/sh\n"
+                'case "$(cat)" in\n'
+                '  *coreglass-cell*) cat "$0.bin"; cat "$0.err" >&2 ;;\n'
+                "  plain) printf 'plain\\r\\nline\\rend\\n'; printf 'error\\r\\nline\\rend\\n' >&2 ;;\n"
+                "  *) echo '@@cell shadow shadow/qwen35_model.py True' ;;\n"
+                "esac\n")
+            (stub / "ssh").chmod(0o755)
+            (stub / "ssh.bin").write_bytes(stream)
+            (stub / "ssh.err").write_bytes(diagnostic)
+            before = self.tmp_snapshot(base)
+            logs = []
+            with mock.patch.object(remote, "resolve",
+                                   lambda n: {"name": "fixture", "ssh": "fixture-alias-never-dialed",
+                                              "gpu_lock": f"{base}/gpu.lock"}), \
+                 mock.patch.dict(os.environ, {"PATH": f"{stub}:{os.environ['PATH']}"}):
+                out = cells.measure({"base": str(base)}, {"host": "fixture", "base": str(base)}, self.cell(),
+                                    {"venv": "venv", "driver": "vulkan"}, str(base / "vulkan"), logs.append,
+                                    Path(caps))
+                plain = remote.ssh({"ssh": "fixture-alias-never-dialed"}, "unused", stdin="plain")
+            self.assertEqual((plain.stdout, plain.stderr), ("plain\nline\nend\n", "error\nline\nend\n"))
+            self.assertEqual((out["gated_runs"], out["runs"]), (2, 2))
+            self.assertEqual(out["run_rc"], 0)
+            raw = Path(caps) / out["artifacts"][:-len(".run.json")]
+            self.assertEqual((raw / "transport.out").read_bytes(), stream)  # exact bytes, byte for byte
+            self.assertEqual((raw / "transport.err").read_bytes(), diagnostic)
+            self.assertEqual((raw / "p1-off-bench.err").read_bytes(), diagnostic)
+            self.assertEqual((raw / "p1-off-bench.out").read_bytes(), noise)
+            self.assertEqual((raw / "p1-on-server.log").read_bytes(), noise)
+            man = json.loads((Path(caps) / out["artifacts"]).read_text())
+            self.assertEqual((man["rc"], man["interrupted"], man["invalid_parts"]), (0, False, []))
+            self.assertEqual(sorted(man["parts"]),
+                             sorted(f"p1-{v}-{n}" for v in ("off", "on")
+                                    for n in ("bench.err", "bench.out", "server.log")))
+            self.assertEqual([p["status"] for p in man["parts"].values()], ["ok"] * 6)
+            self.assert_no_leftovers(base, before)
+
+    def test_shutdown_diagnostics_after_term_are_drained_before_the_flush_keeps_them(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as caps:
+            base, bin = self.fixtures(tmp)
+            (base / "bench-slow").write_text("")  # the variant is still running when the TERM arrives
+            (base / "omlx-shutdown").write_text("")  # the server answers TERM with one last log line, late
+            procs = []
+            out, logs, local, target, before = self.run_cell(base, bin, caps,
+                                                             transport=self.signal_transport(bin, procs))
+            self.assertIsNone(out)  # the bench never finished: no metrics, exactly as before
+            man, raw = self.manifest(caps)
+            self.assertFalse(man["interrupted"])  # a real local signal, not the injected timeout path
+            self.assertEqual([q.returncode for q in procs], [-15])
+            # the writer's late shutdown line must be in the kept log, not lost to a flush that raced it
+            self.assertIn("fixture omlx shutdown drained", (raw / "p1-off-server.log").read_text())
+            self.assert_no_leftovers(base, before)
+
+    def test_shutdown_bound_expiry_preserves_unfinalized_files_and_marks_the_capture_incomplete(self):
+        for deny_kill in (False, True):
+            with self.subTest(deny_kill=deny_kill), tempfile.TemporaryDirectory() as tmp, \
+                    tempfile.TemporaryDirectory() as caps:
+                base, bin = self.fixtures(tmp)
+                (base / "bench-slow").write_text("")
+                (base / "omlx-ignores-term").write_text("")
+                env = {}
+                if deny_kill:
+                    shell_env = base / "deny-kill.bash"
+                    shell_env.write_text('kill() { [ "$1" != -9 ] && builtin kill "$@"; }\n')
+                    env["BASH_ENV"] = str(shell_env)
+                procs = []
+                started = time.monotonic()
+                try:
+                    out, logs, local, target, _before = self.run_cell(
+                        base, bin, caps, transport=self.signal_transport(bin, procs, env))
+                    self.assertIsNone(out)
+                    man, raw = self.manifest(caps)
+                    self.assertEqual((man["interrupted"], [q.returncode for q in procs]), (False, [-15]))
+                    preserved = Path(man["preserved_work"])
+                    self.assertEqual(preserved.parent, base)
+                    self.assertTrue(man["incomplete"])
+                    self.assertEqual(man["parts"], {})
+                    self.assertEqual((preserved / "1-off/bench.out").read_bytes(),
+                                     b"bench fixture noise: raw stdout before any result\n")
+                    self.assertIn(self.SERVER_LINE, (preserved / "1-off/log").read_text())
+                    self.assertIn(str(preserved).encode(), (raw / "transport.out").read_bytes())
+                    self.assertLess(time.monotonic() - started, 22)
+                    pid = int((base / "omlx.pid").read_text())
+                    cmdline = Path(f"/proc/{pid}/cmdline")
+                    running = cmdline.exists() and b"sleep" in cmdline.read_bytes()
+                    self.assertEqual(running, deny_kill)
+                finally:
+                    pid_file = base / "omlx.pid"
+                    if pid_file.exists():
+                        try:
+                            os.kill(int(pid_file.read_text()), signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
 
     def test_off_protocol_and_malformed_sections_are_refused_and_transport_bytes_land_first(self):
         with tempfile.TemporaryDirectory() as caps:
