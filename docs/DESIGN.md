@@ -258,12 +258,16 @@ capture times, output tails, and the Coreglass commit.
 
 A ledger server cell stores artifacts under `captures/cells-<label>-<UTC>-<unique>/`.
 Each variant retains benchmark stdout, benchmark stderr, and the server's combined stdout/stderr log.
-The directory also retains the received transport streams.
+The directory also retains the received transport streams as bytes before decoding a separate parse view.
 The adjacent `.run.json` manifest (`coreglass/cell-run/v1`) records the ticket exit status and stack identifiers.
 It includes the Coreglass commit, command, script hash, and each part's status, size, and SHA256.
 The ledger row's `artifacts` field references this manifest relative to the capture store.
 
-The cleanup trap exports available files before removing temporary storage, including on early exit or handled signals.
+The cleanup trap drains the server before exporting files, including on early exit or handled signals.
+It polls after TERM for 15 seconds, then sends KILL and polls for one more second without an unbounded wait.
+If the TERM grace expires, it does not export or remove the temporary files.
+The manifest records `incomplete: true` and `preserved_work` with that directory, even if KILL stops the server.
+This preserves files without claiming a complete shutdown log. It does not grant further target access or cleanup.
 Unique allocation and exclusive manifest creation prevent evidence overwrites.
 Received sections use base64; incomplete or malformed sections remain marked in the manifest.
 A disconnected transport cannot recover bytes that never arrived.
