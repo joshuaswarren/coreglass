@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Binary SSH transport accepts native byte input unchanged and encodes string input only.
 - Cell captures preserve successful transport bytes, including invalid UTF-8 and original line endings.
   Shutdown drains the server within fixed TERM/KILL bounds before export. On grace expiry, the capture is marked
   incomplete and the temporary files remain in place.

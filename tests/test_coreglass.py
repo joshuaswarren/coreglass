@@ -133,6 +133,29 @@ class Sampler(unittest.TestCase):
 
 
 class Remote(unittest.TestCase):
+    def test_ssh_preserves_binary_bytes_and_encodes_only_binary_strings(self):
+        with tempfile.TemporaryDirectory(prefix="coreglass-transport-") as tmp:
+            stub = Path(tmp) / "ssh"
+            stub.write_text(f"#!{sys.executable}\n"
+                            "import sys\n"
+                            "data = sys.stdin.buffer.read()\n"
+                            "sys.stdout.buffer.write(data)\n"
+                            "sys.stderr.buffer.write(data)\n")
+            stub.chmod(0o755)
+            binary = b"\x00\xff\x80\r\nbare\rend\n"
+            text = "π\r\nbare\rend\n"
+            cases = (({"text": False}, binary, binary),
+                     ({"text": False}, text, text.encode()),
+                     ({}, text, "π\nbare\nend\n"))
+            with mock.patch.dict(os.environ, {"PATH": f"{tmp}:{os.environ['PATH']}"}):
+                for mode, stdin, expected in cases:
+                    with self.subTest(mode=mode, input_type=type(stdin).__name__):
+                        result = remote.ssh({"ssh": "local-fixture-never-dialed"}, "unused",
+                                            stdin=stdin, timeout=5, **mode)
+                        self.assertEqual(result.returncode, 0)
+                        self.assertEqual(result.stdout, expected)
+                        self.assertEqual(result.stderr, expected)
+
     def test_blockers_refuse_busy_hosts(self):
         quiet = {"reachable": True, "gpu_lock_held": False, "load1": 0.1, "busy": []}
         self.assertEqual(remote.blockers(quiet), [])
