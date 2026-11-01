@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Server cells now retain benchmark stdout/stderr, combined server logs, and received transport output in the capture store.
+  A manifest records source/runtime identifiers, ticket status, part hashes, and incomplete or malformed sections.
+  Ledger rows reference that manifest. Unique allocation prevents overwrites; cleanup exports files before removal.
+  Partial and failed runs retain received evidence. This change cannot recover raw output lost by earlier runs.
+
 ## 0.2.1
 
 This release has 6 commits since 0.2.0. All six are daily ledger data commits, one for each of six ledger days: 2026-10-18 and 2026-10-20 to 2026-10-24. No code changed.

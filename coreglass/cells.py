@@ -4,10 +4,18 @@ and reads the server's own decode rate from its log. A quiet gate (CPU idle >= 9
 before every measurement; ungated runs do not count. A CPU-only dry run checks every path before the GPU ticket.
 """
 
+import base64
+import binascii
+import hashlib
 import json
 import re
 import shlex
 import statistics
+import subprocess
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
 
 from . import remote
 
@@ -59,7 +67,17 @@ rm -f $qgate
 """
     return head + f"""work=$(mktemp -d /tmp/coreglass-cell.XXXX)
 server=
-trap '[ -n "$server" ] && kill $server 2>/dev/null; rm -r "$work"; rm -f $qgate' EXIT
+flush() {{  # every raw byte of every variant, out before the cleanup removes $work (base64: exact bytes)
+  for d in "$work"/*-*; do
+    [ -d "$d" ] || continue
+    d=${{d##*/}}; v=${{d##*-}}; p=${{d%-$v}}
+    for f in bench.out bench.err log; do
+      [ -e "$work/$d/$f" ] && {{ echo "{MARK} artifact $p $v $f $(wc -c < "$work/$d/$f")"; base64 < "$work/$d/$f"; }}
+    done
+  done
+}}
+trap '[ -n "$server" ] && kill $server 2>/dev/null; flush; rm -r "$work"; rm -f $qgate' EXIT
+trap 'exit 130' INT TERM HUP
 for p in $(seq 1 {int(cell.get('pairs', 5))}); do
   if [ $((p % 2)) = 1 ]; then order="off on"; else order="on off"; fi
   for v in $order; do
@@ -75,7 +93,8 @@ for p in $(seq 1 {int(cell.get('pairs', 5))}); do
       '{{"model":"{model_id}","messages":[{{"role":"user","content":"warm up"}}],"max_tokens":1,"temperature":0,"enable_thinking":false}}' >/dev/null
     echo "{MARK} run $p $v gate $(qwait)"
     {py} {bench} --endpoint http://127.0.0.1:$port/v1/chat/completions --model {model_id} --prompt-file {prompt} \\
-      --max-tokens 128 --timeout 300 --repeats 1 --concurrency {levels} | sed 's/^/{MARK} bench /'
+      --max-tokens 128 --timeout 300 --repeats 1 --concurrency {levels} 2> $work/$p-$v/bench.err |\\
+      tee $work/$p-$v/bench.out | sed 's/^/{MARK} bench /'
     grep 'Chat completion: .* 128 tokens' $work/$p-$v/log | sed 's/^/{MARK} log /'
     kill $server; wait $server 2>/dev/null; server=
   done
@@ -122,8 +141,86 @@ def parse(text, cell):
     return out, texts, sum(r["gated"] for r in runs), len(runs)
 
 
-def measure(cfg, target, cell, stack, driver, log):
-    """Dry run, then one GPU ticket (one ssh) for the whole cell. Returns the cell's row fields or None."""
+PART_NAMES = {"bench.out": "bench.out", "bench.err": "bench.err", "log": "server.log"}
+CELL_META = ("label", "stack", "shadow", "model", "bench", "prompt", "concurrency", "pairs")
+
+
+def artifact_parts(text):
+    """Exact bytes of one run's diagnostic parts, decoded from the stream's base64 sections. Returns
+    ({(pair, variant, part, declared): (bytes, status)}, [off-protocol marker lines]) with status ok, truncated
+    (a section cut off by a dead transport keeps what arrived) or malformed (undecodable base64, or more bytes
+    than the marker declared); anything not matching the fixed protocol is refused, never decoded or written."""
+    parts, invalid, cur, b64 = {}, [], None, []
+
+    def flush():
+        nonlocal cur, b64
+        if not cur:
+            return
+        p, v, name, size, marker = cur
+        if not (p.isdecimal() and v in ("off", "on") and name in PART_NAMES):
+            invalid.append(marker)
+        else:
+            try:
+                data = base64.b64decode("".join(b64) + "=" * (-len("".join(b64)) % 4), validate=True)
+            except (binascii.Error, ValueError):
+                parts[(p, v, name, size)] = ("".join(b64).encode(errors="surrogateescape"), "malformed")
+            else:
+                parts[(p, v, name, size)] = (data, "ok" if len(data) == size
+                                             else "truncated" if len(data) < size else "malformed")
+        cur, b64 = None, []
+
+    for ln in text.splitlines():
+        m = re.match(re.escape(MARK) + r" artifact (\S+) (\S+) (\S+) (\d+)$", ln)
+        if m:
+            flush()
+            cur, b64 = (*m.groups()[:3], int(m[4]), ln), []
+        elif cur:
+            if ln.startswith(MARK):
+                flush()
+            else:
+                b64.append(ln.strip())
+    flush()
+    return parts, invalid
+
+
+def save_artifacts(run, cell, captures, command, script, identifiers=None, interrupted=False):
+    """Keep one run's raw evidence in the house captures dir before the remote cleanup: the transport stream's
+    exact bytes land first, then per pair and variant the benchmark's stdout and stderr and the server's log, plus
+    a .run.json manifest (house sidecar style) binding the exact execution context — the Coreglass commit, the
+    ticket command, the script's sha256 — with the exact exit status, stack identifiers, and per-part status,
+    sizes and sha256. The stem is allocated atomically, so a rerun or the same cell on another host never
+    overwrites evidence. Returns the manifest's name relative to `captures`."""
+    stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", cell["label"]).strip("-") or "cell"
+    captures.mkdir(parents=True, exist_ok=True)
+    raw = Path(tempfile.mkdtemp(prefix=f"cells-{safe}-{stamp}-", dir=captures))
+    stem = raw.name
+    stream = lambda s: s if isinstance(s, bytes) else (s or "").encode(errors="surrogateescape")
+    (raw / "transport.out").write_bytes(stream(run.stdout))
+    (raw / "transport.err").write_bytes(stream(run.stderr))
+    decoded, invalid = artifact_parts(run.stdout)
+    parts = {}
+    for (p, v, name, declared), (data, status) in decoded.items():
+        fname = f"p{p}-{v}-{PART_NAMES[name]}"
+        (raw / fname).write_bytes(data)
+        parts[fname] = {"pair": p, "variant": v, "part": name, "status": status, "size": len(data),
+                        "declared": declared, "sha256": hashlib.sha256(data).hexdigest()}
+    manifest = {"schema": "coreglass/cell-run/v1",
+                "cell": {k: cell[k] for k in CELL_META if k in cell},  # env_off is an env dump, never persisted
+                "rc": run.returncode, "interrupted": interrupted,
+                "coreglass_commit": remote._commit(), "command": command,
+                "script_sha256": hashlib.sha256(script.encode()).hexdigest(),
+                "identifiers": identifiers or {}, "invalid_parts": invalid, "parts": parts}
+    with (captures / f"{stem}.run.json").open("x") as out:
+        out.write(json.dumps(manifest, indent=1) + "\n")
+    return f"{stem}.run.json"
+
+
+def measure(cfg, target, cell, stack, driver, log, captures, identifiers=None):
+    """Dry run, then one GPU ticket (one ssh) for the whole cell. Returns the cell's row fields or None. The run's
+    full raw output — benchmark stdout and stderr, the server log, the transport stream — is kept in the house
+    captures dir before the remote cleanup, also when the run fails or the transport dies; a run whose evidence
+    cannot be written records no row."""
     host = remote.resolve(target["host"])
     base = target.get("base", cfg["base"])
     dry = remote.ssh(host, "bash -s", cell_script(cell, base, stack, driver, dry=True), timeout=120)
@@ -137,10 +234,26 @@ def measure(cfg, target, cell, stack, driver, log):
         wrap = re.sub(r"-m \d+", f"-m {cell.get('turn_minutes', 6)}", host["gpu_turn"]) + " -- bash -s"
     else:
         wrap = f"flock -w 900 {shlex.quote(host['gpu_lock'])} bash -s"
-    run = remote.ssh(host, wrap, script, timeout=float(cfg.get("wait_seconds", 3 * 3600)) + 1800)
+    interrupted = False
+    try:
+        run = remote.ssh(host, wrap, script, timeout=float(cfg.get("wait_seconds", 3 * 3600)) + 1800)
+    except subprocess.TimeoutExpired as e:  # a dead transport must not bury the partial output
+        interrupted = True
+        text = lambda s: s.decode(errors="surrogateescape") if isinstance(s, bytes) else (s or "")
+        run = SimpleNamespace(returncode=None, stdout=text(e.stdout), stderr=text(e.stderr))
+    try:
+        manifest = save_artifacts(run, cell, captures, wrap, script, identifiers, interrupted)
+    except OSError as e:
+        log(f"{cell['label']}: evidence write failed ({e}); recording no row")
+        return None
+    log(f"{cell['label']}: raw output kept in captures/{manifest}")
     metrics, texts, gated, total = parse(run.stdout, cell)
     log(f"{cell['label']}: {gated}/{total} runs gated quiet, rc {run.returncode}")
     if not metrics:
         return None
-    return {"metrics": metrics, "texts": texts, "gated_runs": gated, "runs": total,
-            "text_parity": len(set(texts.get("off", []) + texts.get("on", []))) == 1}
+    out = {"metrics": metrics, "texts": texts, "gated_runs": gated, "runs": total,
+           "text_parity": len(set(texts.get("off", []) + texts.get("on", []))) == 1, "run_rc": run.returncode,
+           "artifacts": manifest}
+    if interrupted:
+        out["interrupted"] = True
+    return out

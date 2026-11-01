@@ -594,7 +594,7 @@ def measure_cell(cfg, target, cell, log):
     if not info:
         log(f"{cell['label']}: stack {stack['label']} missing; skipped")
         return None
-    out = cells.measure(cfg, target, cell, stack, driver, log)
+    out = cells.measure(cfg, target, cell, stack, driver, log, captures=CAPTURES, identifiers=info)
     if not out:
         return None
     return {"chip": host.get("chip", host["name"]), "os": "linux", "stack": cell["label"], "cell": True, **info,

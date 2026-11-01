@@ -256,6 +256,19 @@ Each run writes `captures/<host>-<UTC>.jsonl` and `<same>.run.json` (`coreglass/
 holds the host entry, preflight, any blockers overridden, per-step label, command, exit code, wall and
 capture times, output tails, and the Coreglass commit.
 
+A ledger server cell stores artifacts under `captures/cells-<label>-<UTC>-<unique>/`.
+Each variant retains benchmark stdout, benchmark stderr, and the server's combined stdout/stderr log.
+The directory also retains the received transport streams.
+The adjacent `.run.json` manifest (`coreglass/cell-run/v1`) records the ticket exit status and stack identifiers.
+It includes the Coreglass commit, command, script hash, and each part's status, size, and SHA256.
+The ledger row's `artifacts` field references this manifest relative to the capture store.
+
+The cleanup trap exports available files before removing temporary storage, including on early exit or handled signals.
+Unique allocation and exclusive manifest creation prevent evidence overwrites.
+Received sections use base64; incomplete or malformed sections remain marked in the manifest.
+A disconnected transport cannot recover bytes that never arrived.
+An evidence-write failure prevents the run from producing a ledger row.
+
 The `coreglass live <any> --replay <capture> --speed N` command plays a capture through the dashboard,
 marks included.
 
