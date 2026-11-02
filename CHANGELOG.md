@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- NVIDIA benchmark cases now run locally inside the existing GPU turn, without a separate SSH launcher.
+  Timeouts retain raw output and bound owned process retirement. Unreadable kernel logs cannot pass the Xid gate.
+  Result checks use llama-bench's real JSON fields and complete sample arrays.
 - Binary SSH transport accepts native byte input unchanged and encodes string input only.
 - Cell captures preserve successful transport bytes, including invalid UTF-8 and original line endings.
   Shutdown drains the server within fixed TERM/KILL bounds before export. On grace expiry, the capture is marked
