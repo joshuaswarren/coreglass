@@ -1,0 +1,12 @@
+# NVIDIA bench lane config for nvidia/benchcase.py (copy to
+# ~/.config/coreglass/nvidia-lane.toml and fill in; real values are private,
+# same policy as hosts.example.toml). Values are plain strings.
+
+[lane]
+ssh_alias = ""                 # ssh alias of the bench host (never a raw IP)
+bench_path = ""                # absolute path to llama-bench
+llama_src = ""                 # llama.cpp checkout the binary was built from
+model_path = ""                # absolute path to the Llama-2-7B Q4_0 GGUF
+icd_path = ""                  # exclusive Vulkan ICD JSON to pin
+pci_addr = ""                  # PCI address of the card, e.g. 0001:09:00.0
+pci_id = ""                    # device id as lspci -nn prints it, e.g. 10de:2d04:

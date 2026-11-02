@@ -1,0 +1,75 @@
+{
+  "case_id": "nvidia-5060ti-llama2-7b-q4_0-tg128-fa1-r3",
+  "queue_order": 2,
+  "shape": "tg128",
+  "model": {
+    "name": "llama-2-7b.Q4_0.gguf",
+    "bytes": 3825807040,
+    "sha256": "78b8f9777dd620ad29cd2cffb6653b17fa8a5b1fddc1b8821180d60eedd24d48",
+    "lane_key": "model_path"
+  },
+  "binary": {
+    "name": "llama-bench",
+    "sha256": "5ec986362d0a11c813da31c4ffa3e2fb42d314ca4a3fa9c473829ce0e02b9119",
+    "source_commit": "65840ed53c8653bfbf3e9014d9cbf71ac8c08725",
+    "lane_key": "bench_path"
+  },
+  "input": {
+    "argv": ["-m", "{model_path}", "-ngl", "99", "-p", "0", "-n", "128", "-fa", "1", "-r", "3", "-o", "json"],
+    "env_pins": {
+      "VK_ICD_FILENAMES": "{icd_path}",
+      "GGML_VK_VISIBLE_DEVICES": "0",
+      "LD_LIBRARY_PATH": "{nvidia_lib}:{bench_dir}"
+    },
+    "single_submit": true,
+    "runs_per_queue_slot": 1
+  },
+  "expect": {
+    "rows": 1,
+    "row": {
+      "n_prompt": 0,
+      "n_gen": 128,
+      "n_gpu_layers": 99,
+      "flash_attn": 1,
+      "backend": "Vulkan",
+      "gpu_info_contains": "RTX 5060 Ti",
+      "split_mode": "none"
+    },
+    "stderr_contains": [
+      "using device Vulkan0 (NVIDIA GeForce RTX 5060 Ti) (0001:09:00.0)",
+      "offloaded 33/33 layers to GPU"
+    ]
+  },
+  "gates": [
+    "rc_zero",
+    "identity_pins",
+    "pci_native_gate",
+    "provider_identity",
+    "no_cpu_fallback",
+    "no_device_lost",
+    "finite_metrics",
+    "xid_delta_zero",
+    "idle_gate"
+  ],
+  "caps": {
+    "submit_timeout_s": 900,
+    "expected_wall_s_max": 20,
+    "retries": 0,
+    "force": false,
+    "cap_extension": false
+  },
+  "runtime": {
+    "host_key": "bench_host",
+    "kernel": "record_only_not_pinned",
+    "nvidia_userspace": "record_only_via_smi",
+    "window": "parent_staged",
+    "notebook_entry_required": true,
+    "model_or_driver_changes": false
+  },
+  "provenance": {
+    "gguf_custody": "printed by the run itself in artifacts/egpu-b60/dualcard-20261024T205012Z/nvvk-20261024T205206Z/log.txt (2026-10-24)",
+    "binary_custody": "artifacts/egpu-b60/nv-vk-headless-20261029/ticket-vkhl-r8.out (2026-10-29); re-verified at run time by the caller",
+    "split_proof": "tools/llama-bench/llama-bench.cpp@65840ed53c8653bfbf3e9014d9cbf71ac8c08725: n_prompt!=0 builds instance (n_prompt,0); n_gen!=0 builds instance (0,n_gen); -p 512 -n 128 therefore equals case-pp512 plus this case",
+    "reference_rows": "fa1 tg128 84.92 +- 0.07 (2026-10-24 receipt, -r 5 session; driver 595.112.07 userspace; shape reference only)"
+  }
+}
