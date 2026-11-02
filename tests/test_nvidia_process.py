@@ -199,6 +199,38 @@ class ProcessRetention(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    @unittest.skipUnless(sys.platform == "linux", "house GPU turn uses Linux procfs and flock")
+    def test_normal_queue_shim_admits_with_cleared_markers_and_held_lock(self):
+        import subprocess
+
+        with tempfile.TemporaryDirectory(prefix="coreglass-normal-turn-") as tmp:
+            directory = Path(tmp)
+            lock = directory / "gpu.lock"
+            shim = directory / "gpu-turn-exec"
+            shim.write_text(
+                "unset GPU_TURN_TOOL GPU_TURN_PID GPU_TURN_M GPU_TURN_T0 GPU_TURN_CMD\nexec \"$@\"\n"
+            )
+            turn = directory / "gpu-turn"
+            turn.write_text(
+                "export GPU_TURN_TOOL=gpu-turn GPU_TURN_PID=$$\n"
+                "flock \"$1\" bash \"$2\" \"$3\" \"$4\"\n"
+                "rc=$?\nexit \"$rc\"\n"
+            )
+            fixture = directory / "check.py"
+            fixture.write_text(
+                "import importlib.util,os\n"
+                f"spec=importlib.util.spec_from_file_location('case',{str(ROOT / 'nvidia/benchcase.py')!r})\n"
+                "case=importlib.util.module_from_spec(spec);spec.loader.exec_module(case)\n"
+                "assert 'GPU_TURN_TOOL' not in os.environ and 'GPU_TURN_PID' not in os.environ\n"
+                "assert case.in_turn(), 'normal queue shim rejected'\n"
+                f"assert case.held_turn_fd({str(lock)!r}) is not None, 'owned lock missing'\n"
+            )
+            result = subprocess.run(
+                ["bash", str(turn), str(lock), str(shim), sys.executable, str(fixture)],
+                capture_output=True, timeout=5, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

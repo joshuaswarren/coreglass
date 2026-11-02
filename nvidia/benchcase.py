@@ -144,17 +144,15 @@ def preflight(lane, packet, runtime):
 
 
 def in_turn():
-    if os.environ.get("GPU_TURN_TOOL") != "gpu-turn":
-        return False
     try:
-        owner = int(os.environ["GPU_TURN_PID"])
-        pid = os.getpid()
+        pid = os.getppid()
         while pid > 1:
-            if pid == owner:
-                return b"gpu-turn" in Path(f"/proc/{pid}/cmdline").read_bytes()
+            argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+            if any(os.path.basename(arg) == b"gpu-turn" for arg in argv[:2]):
+                return True
             fields = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()
             pid = int(fields[1])
-    except (OSError, ValueError, KeyError, IndexError):
+    except (OSError, ValueError, IndexError):
         return False
     return False
 
