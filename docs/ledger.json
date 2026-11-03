@@ -19560,7 +19560,8 @@
    "check \u00b7 GDN 1536-token prompt": [
     "3448b4d858cc506a"
    ]
-  }
+  },
+  "contaminated": "kernel with the AGX power request off (agx_vote=0): same kernel with it on gives 117.5 tok/s against 93.9 off on 2B decode; not a release regression"
  },
  {
   "date": "2026-11-03",
@@ -19824,7 +19825,8 @@
    "check \u00b7 GDN 1536-token prompt": [
     "3448b4d858cc506a"
    ]
-  }
+  },
+  "contaminated": "kernel with the AGX power request off (agx_vote=0): same kernel with it on gives 117.5 tok/s against 93.9 off on 2B decode; not a release regression"
  },
  {
   "date": "2026-11-03",
@@ -20002,6 +20004,7 @@
   "runs": 10,
   "text_parity": true,
   "run_rc": 0,
-  "artifacts": "cells-oMLX-server-2B-conv-fuse-0006-20261103T122912Z-5shht4pd.run.json"
+  "artifacts": "cells-oMLX-server-2B-conv-fuse-0006-20261103T122912Z-5shht4pd.run.json",
+  "contaminated": "kernel with the AGX power request off (agx_vote=0): same kernel with it on gives 117.5 tok/s against 93.9 off on 2B decode; not a release regression"
  }
 ]
