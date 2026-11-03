@@ -346,6 +346,44 @@ class Remote(unittest.TestCase):
         self.assertEqual(fields(76.8, 64.0), {"power_state": "one state 70.4 W"})  # exactly 1.2 apart is one state
         self.assertEqual(ledger.power_fields({}), {})
 
+    def test_ledger_stack_info_records_the_agx_vote_and_its_idle_time_when_the_kernel_has_them(self):
+        def ssh_says(*lines, rc=0):
+            return mock.Mock(returncode=rc, stdout="\n".join(lines) + "\n")
+        base = ("0.32.4", "Mesa 26.3.0-devel (git-9323171c12)", "7.1.12-fixture", "")
+        with mock.patch.object(remote, "ssh", lambda *a, **k: ssh_says(*base, "@agx_vote=N", "@agx_vote_idle_ms=100")):
+            got = ledger.stack_info({}, "/py", "/drv")
+        self.assertEqual((got["agx_vote"], got["agx_vote_idle_ms"], got["driver"]), ("N", 100, "9323171c12"))
+        with mock.patch.object(remote, "ssh", lambda *a, **k: ssh_says(*base, "@agx_vote=", "@agx_vote_idle_ms=")):
+            got = ledger.stack_info({}, "/py", "/drv")
+        self.assertNotIn("agx_vote", got)  # a kernel without the parameter leaves the row as it was
+        with mock.patch.object(remote, "ssh", lambda *a, **k: ssh_says(*base, "@agx_vote=Y", rc=1)):
+            self.assertIsNone(ledger.stack_info({}, "/py", "/drv"))  # a failed probe is still a missing stack
+
+    def test_ledger_page_shows_the_agx_vote_in_the_power_column_and_a_vote_change_next_to_a_regression(self):
+        cfg = {"models": [{"label": "M"}], "engines": [{"label": "E"}]}
+        dec = "M · E · decode tok/s"
+
+        def row(date, d, **extra):
+            return {"date": date, "chip": "C", "stack": "release", "wheel": "0+a", "driver": "x", "kernel_id": "k",
+                    "os": "linux", "power_state": "one state 60 W", "metrics": {dec: {"median": d, "min": d, "max": d}}, **extra}
+        page = ledger.render([row("2026-11-01", 100, agx_vote="Y", agx_vote_idle_ms=250), row("2026-11-02", 90, agx_vote="N")], cfg)
+        self.assertIn("one state 60 W · AGX vote on, 250 ms", page)
+        self.assertIn("one state 60 W · AGX vote off", page)
+        self.assertIn("kernel unchanged, AGX vote Y -> N", page)
+        self.assertEqual(ledger.vote_text({}), "")  # no parameter, nothing added to the cell
+        self.assertEqual(ledger.vote_text({"agx_vote": "N", "agx_vote_end": "Y"}), " · AGX vote off (changed to on during the run)")
+
+    def test_ledger_reads_the_agx_vote_again_after_a_run_and_ignores_a_target_that_does_not_answer(self):
+        with mock.patch.object(remote, "ssh", lambda *a, **k: mock.Mock(returncode=0, stdout="Y\n")):
+            self.assertEqual(ledger.vote_now({}), "Y")
+        with mock.patch.object(remote, "ssh", lambda *a, **k: mock.Mock(returncode=1, stdout="N\n")):
+            self.assertEqual(ledger.vote_now({}), "")
+
+        def hang(*a, **k):
+            raise subprocess.TimeoutExpired("ssh", 30)
+        with mock.patch.object(remote, "ssh", hang):
+            self.assertEqual(ledger.vote_now({}), "")
+
     def test_ledger_never_compares_against_or_flags_a_noisy_row(self):
         cfg = {"models": [{"label": "M"}], "engines": [{"label": "E"}]}
         dec = "M · E · decode tok/s"
