@@ -241,10 +241,22 @@ def measure_linux(cfg, target, stack, log):
         failed += bad
     if not reps:
         return None
+    end = vote_now(host)
+    if info.get("agx_vote") and end and end != info["agx_vote"]:
+        info = {**info, "agx_vote_end": end}
     return {"chip": host.get("chip", host["name"]), "os": "linux", "stack": stack["label"], **info,
             "ane_workload": ane_workload(host.get("ane_cmd", "")), "reps": len(reps), "rejected_idle_w": rejected,
             "kernel_warnings": warnings, "failed_steps": sorted(set(failed)), **metrics_fields(reps),
             "digests": digest_sets(digests)}
+
+
+def vote_now(host):
+    """The AGX vote right now (Y or N), or '' when the target has no such parameter or does not answer."""
+    try:
+        p = remote.ssh(host, f"cat {VOTE_DIR}/agx_vote 2>/dev/null", timeout=30)
+    except (subprocess.TimeoutExpired, OSError):
+        return ""
+    return p.stdout.strip() if p.returncode == 0 else ""
 
 
 def ane_workload(cmd):
@@ -422,7 +434,10 @@ def vote_text(r):
     if not r.get("agx_vote"):
         return ""
     ms = r.get("agx_vote_idle_ms")
-    return f" · AGX vote {'on' if r['agx_vote'] == 'Y' else 'off'}" + (f", {ms} ms" if ms is not None else "")
+    text = f" · AGX vote {'on' if r['agx_vote'] == 'Y' else 'off'}" + (f", {ms} ms" if ms is not None else "")
+    if r.get("agx_vote_end"):
+        text += f" (changed to {'on' if r['agx_vote_end'] == 'Y' else 'off'} during the run)"
+    return text
 
 
 def render(rows, cfg):

@@ -371,6 +371,18 @@ class Remote(unittest.TestCase):
         self.assertIn("one state 60 W · AGX vote off", page)
         self.assertIn("kernel unchanged, AGX vote Y -> N", page)
         self.assertEqual(ledger.vote_text({}), "")  # no parameter, nothing added to the cell
+        self.assertEqual(ledger.vote_text({"agx_vote": "N", "agx_vote_end": "Y"}), " · AGX vote off (changed to on during the run)")
+
+    def test_ledger_reads_the_agx_vote_again_after_a_run_and_ignores_a_target_that_does_not_answer(self):
+        with mock.patch.object(remote, "ssh", lambda *a, **k: mock.Mock(returncode=0, stdout="Y\n")):
+            self.assertEqual(ledger.vote_now({}), "Y")
+        with mock.patch.object(remote, "ssh", lambda *a, **k: mock.Mock(returncode=1, stdout="N\n")):
+            self.assertEqual(ledger.vote_now({}), "")
+
+        def hang(*a, **k):
+            raise subprocess.TimeoutExpired("ssh", 30)
+        with mock.patch.object(remote, "ssh", hang):
+            self.assertEqual(ledger.vote_now({}), "")
 
     def test_ledger_never_compares_against_or_flags_a_noisy_row(self):
         cfg = {"models": [{"label": "M"}], "engines": [{"label": "E"}]}

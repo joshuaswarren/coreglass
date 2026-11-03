@@ -5,9 +5,10 @@
 ### Added
 
 - Every Linux ledger row and server cell records the AGX vote (`agx_vote`, Y or N) and its idle time (`agx_vote_idle_ms`) when the
-  target's kernel has the `pmp_report` parameters; kernels without them leave the row unchanged. The ledger page shows the vote next to
-  the power state and names a vote change beside a regression. The kernel itself is still shown as an 8-character hash; the full
-  release string stays in each capture's manifest.
+  target's kernel has the `pmp_report` parameters; kernels without them leave the row unchanged. A Linux row also reads the vote again
+  after its reps and records `agx_vote_end` when it changed. The ledger table shows the vote next to the power state and names a vote
+  change beside a regression; server cells keep it in `docs/ledger.json`. The kernel itself is still shown as an 8-character hash; the
+  full release string stays in each capture's manifest.
 
 ## 0.2.2
 
