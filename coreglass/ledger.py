@@ -63,22 +63,33 @@ PROBE = ("import mlx.core as m; d = getattr(m, 'device_info', dict)(); "
          "print(m.__version__); print(d.get('driver_info', ''))")
 
 
+VOTE_DIR = "/sys/module/pmp_report/parameters"
+
+
 def stack_info(host, python, driver):
     """mlx version, the Vulkan driver this stack's MLX process actually opened (mx.device_info driver_info, e.g.
-    "Mesa 26.3.0-devel (git-6dc1fba8e9)"; vulkaninfo when MLX does not report it), and a short hash of the kernel
-    release (the page names no kernels)."""
+    "Mesa 26.3.0-devel (git-6dc1fba8e9)"; vulkaninfo when MLX does not report it), a short hash of the kernel
+    release (the page names no kernels), and, on a kernel that has them, the AGX vote (Y or N) and its idle time in ms."""
     icd = shlex.quote(f"{driver}/honeykrisp_icd.aarch64.json")
-    p = remote.ssh(host, f"export VK_DRIVER_FILES={icd}; {shlex.quote(python)} -c {shlex.quote(PROBE)} && uname -r && "
-                         "vulkaninfo --summary 2>/dev/null | sed -n 's/.*driverInfo *= *//p' | head -1", timeout=90)
-    lines = [ln.strip() for ln in p.stdout.splitlines()] if p.returncode == 0 else []
+    p = remote.ssh(host, f"export VK_DRIVER_FILES={icd}; {{ {shlex.quote(python)} -c {shlex.quote(PROBE)} && uname -r && "
+                         "vulkaninfo --summary 2>/dev/null | sed -n 's/.*driverInfo *= *//p' | head -1; }; rc=$?; "
+                         f"echo \"@agx_vote=$(cat {VOTE_DIR}/agx_vote 2>/dev/null)\"; "
+                         f"echo \"@agx_vote_idle_ms=$(cat {VOTE_DIR}/agx_vote_idle_ms 2>/dev/null)\"; exit $rc", timeout=90)
+    every = [ln.strip() for ln in p.stdout.splitlines()] if p.returncode == 0 else []
+    lines = [ln for ln in every if not ln.startswith("@")]
+    vote = dict(ln[1:].split("=", 1) for ln in every if ln.startswith("@") and "=" in ln)
     if len(lines) < 3:
         return None
     info = lines[1] or (lines[3] if len(lines) > 3 else "")
     if not info:
         return None
     sha = re.search(r"git-([0-9a-f]+)", info)
-    return {"wheel": lines[0], "driver": sha[1] if sha else info, "driver_info": info,
-            "kernel_id": hashlib.sha1(lines[2].encode()).hexdigest()[:8]}
+    out = {"wheel": lines[0], "driver": sha[1] if sha else info, "driver_info": info,
+           "kernel_id": hashlib.sha1(lines[2].encode()).hexdigest()[:8]}
+    if vote.get("agx_vote"):
+        out["agx_vote"] = vote["agx_vote"]
+        out["agx_vote_idle_ms"] = int(vote["agx_vote_idle_ms"]) if vote.get("agx_vote_idle_ms", "").isdigit() else None
+    return out
 
 
 def capture_metrics(capture):
@@ -406,6 +417,14 @@ def commit_of(wheel):
     return wheel.rsplit("+", 1)[-1] if "+" in wheel else wheel
 
 
+def vote_text(r):
+    """' · AGX vote on, 250 ms' for a row measured on a kernel that has the parameter, else ''."""
+    if not r.get("agx_vote"):
+        return ""
+    ms = r.get("agx_vote_idle_ms")
+    return f" · AGX vote {'on' if r['agx_vote'] == 'Y' else 'off'}" + (f", {ms} ms" if ms is not None else "")
+
+
 def render(rows, cfg):
     names = metric_names(cfg)
     rows = sorted(rows, key=lambda r: (r["date"], r["os"], r["chip"], r["stack"]), reverse=True)
@@ -447,7 +466,7 @@ def render(rows, cfg):
         ok = "; ".join(f"{k} `{'/'.join(s[:8] for s in v)}`" for k, v in checks.items())
         verdict = ("**" + "; ".join(bad) + "**") if bad else ok
         lines.append(f"| {day(r)} | {r['chip']} | {r['stack']} | `{r['wheel']}` | `{r['driver']}` | {flag} | "
-                     f"{verdict} | {r.get('power_state', '-')} | " + " | ".join(vals) + " |")
+                     f"{verdict} | {r.get('power_state', '-')}{vote_text(r)} | " + " | ".join(vals) + " |")
     lines += ["", "## Regressions", ""]
     flagged = False
     for r, prev, _, regs in compared:
@@ -459,6 +478,8 @@ def render(rows, cfg):
             driver = (f"[{prev['driver']}...{r['driver']}](https://github.com/joshuaswarren/mesa-1/compare/"
                       f"{prev['driver']}...{r['driver']})" if prev["driver"] != r["driver"] else "unchanged")
             kernel = "changed" if prev["kernel_id"] != r["kernel_id"] else "unchanged"
+            if prev.get("agx_vote") != r.get("agx_vote"):
+                kernel += f", AGX vote {prev.get('agx_vote') or 'absent'} -> {r.get('agx_vote') or 'absent'}"
             lines.append(f"- {r['date']} {r['chip']} · {r['stack']}: {name} {d:+.1f}% (mlx {wheel}; driver {driver}; "
                          f"kernel {kernel})")
     if not flagged:
