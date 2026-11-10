@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.3
 
 ### Added
 
@@ -9,6 +9,10 @@
   after its reps and records `agx_vote_end` when it changed. The ledger table shows the vote next to the power state and names a vote
   change beside a regression; server cells keep it in `docs/ledger.json`. The kernel itself is still shown as an 8-character hash; the
   full release string stays in each capture's manifest.
+
+### Tests
+
+- New tests cover the daily ledger commit step: a clean tree is a success, not an error.
 
 ## 0.2.2
 
