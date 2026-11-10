@@ -272,6 +272,7 @@ Each cell starts a fresh server per variant, alternating the order across pairs,
 
 | Date | Mac | Cell | Gated runs | c1 TTFT ms | c1 aggregate tok/s | c1 server decode tok/s | c4 aggregate tok/s | c4 server decode tok/s | Greedy text (c1) |
 |---|---|---|---|---|---|---|---|---|---|
+| 2026-11-10 | M1 · T8103 | oMLX server · 2B · conv-fuse 0006 | 9/10 | 1,234 → 1,234 (+0.0%) | 31.7 → 32.0 (+1.0%) | 45.6 → 46.5 (+2.0%) | 41.8 → 42.4 (+1.4%) | 15.2 → 15.6 (+2.0%) | same off and on |
 | 2026-11-07 | M1 Max · T6001 | oMLX server · 2B · conv-fuse 0006 | 10/10 | 447 → 445 (+0.6%) | 72.0 → 74.9 (+3.9%) | 96.6 → 101 (+4.9%) | 108 → 111 (+3.4%) | 37.1 → 38.5 (+3.9%) | same off and on |
 | 2026-11-03 | M1 · T8103 | oMLX server · 2B · conv-fuse 0006 | 10/10 | 1,240 → 1,243 (-0.3%) | 30.9 → 31.1 (+0.6%) | 44.0 → 44.4 (+0.9%) | 41.7 → 42.2 (+1.3%) | 15.1 → 15.4 (+2.3%) | same off and on |
 | 2026-11-03 **(CONTAMINATED: kernel with the AGX power request off (agx_vote=0): same kernel with it on gives 117.5 tok/s against 93.9 off on 2B decode; not a release regression)** | M1 Max · T6001 | oMLX server · 2B · conv-fuse 0006 | 10/10 | 446 → 445 (+0.2%) | 69.6 → 71.8 (+3.1%) | 92.0 → 95.6 (+3.9%) | 109 → 112 (+2.7%) | 37.1 → 38.9 (+4.7%) | same off and on |

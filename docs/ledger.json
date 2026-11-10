@@ -20363,5 +20363,96 @@
   "text_parity": true,
   "run_rc": 0,
   "artifacts": "cells-oMLX-server-2B-conv-fuse-0006-20261107T103410Z-dz6hitye.run.json"
+ },
+ {
+  "date": "2026-11-10",
+  "chip": "M1 \u00b7 T8103",
+  "os": "linux",
+  "stack": "oMLX server \u00b7 2B \u00b7 conv-fuse 0006",
+  "cell": true,
+  "wheel": "0.32.4.dev202611101005+412944",
+  "driver": "9323171c12",
+  "driver_info": "Mesa 26.3.0-devel (git-9323171c12)",
+  "kernel_id": "0e0a432b",
+  "agx_vote": "Y",
+  "agx_vote_idle_ms": 250,
+  "reps": 9,
+  "kernel_warnings": 0,
+  "failed_steps": [],
+  "metrics": {
+   "off \u00b7 c1 server decode tok/s": {
+    "median": 45.6,
+    "min": 45.5,
+    "max": 45.6,
+    "n": 4
+   },
+   "off \u00b7 c1 aggregate tok/s": {
+    "median": 31.69,
+    "min": 31.63,
+    "max": 31.86,
+    "n": 4
+   },
+   "off \u00b7 c1 TTFT ms": {
+    "median": 1234.2,
+    "min": 1209.6,
+    "max": 1235.18,
+    "n": 4
+   },
+   "off \u00b7 c4 aggregate tok/s": {
+    "median": 41.76,
+    "min": 41.63,
+    "max": 41.88,
+    "n": 4
+   },
+   "off \u00b7 c4 server decode tok/s": {
+    "median": 15.25,
+    "min": 15.2,
+    "max": 15.3,
+    "n": 4
+   },
+   "on \u00b7 c1 server decode tok/s": {
+    "median": 46.5,
+    "min": 45.7,
+    "max": 46.5,
+    "n": 5
+   },
+   "on \u00b7 c1 aggregate tok/s": {
+    "median": 32.01,
+    "min": 31.57,
+    "max": 32.1,
+    "n": 5
+   },
+   "on \u00b7 c1 TTFT ms": {
+    "median": 1233.77,
+    "min": 1214.68,
+    "max": 1271.65,
+    "n": 5
+   },
+   "on \u00b7 c4 aggregate tok/s": {
+    "median": 42.35,
+    "min": 42.25,
+    "max": 42.44,
+    "n": 5
+   },
+   "on \u00b7 c4 server decode tok/s": {
+    "median": 15.55,
+    "min": 15.45,
+    "max": 15.55,
+    "n": 5
+   }
+  },
+  "texts": {
+   "off": [
+    "b819a5ece9d2"
+   ],
+   "on": [
+    "b819a5ece9d2"
+   ]
+  },
+  "gated_runs": 9,
+  "runs": 10,
+  "text_parity": true,
+  "run_rc": 0,
+  "artifacts": "cells-oMLX-server-2B-conv-fuse-0006-20261110T102521Z-r0lzsa7u.run.json"
  }
 ]
